@@ -1,0 +1,17 @@
+# Riippuvuudet (Dependencies)
+node_modules/
+
+# Lokitiedostot (Logs)
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Ympäristömuuttujat (Environment variables)
+.env
+.env.local
+
+# Järjestelmätiedostot
+.DS_Store
+Thumbs.db
