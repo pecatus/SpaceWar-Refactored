@@ -1,0 +1,5 @@
+{
+  "watch": ["server.js", "models", "gameLogic"],
+  "ext": "js json",
+  "ignore": ["testSocket.js", "*.md"]
+}

@@ -1,0 +1,9 @@
+### Luo uusi peli
+POST http://localhost:3001/api/games/new
+Content-Type: application/json
+
+{
+    "numAiPlayers": 2,
+    "aiColors": ["#dc3545", "#28a745"],
+    "starCount": 150
+}
