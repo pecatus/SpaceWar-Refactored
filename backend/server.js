@@ -71,9 +71,12 @@ io.on("connection", socket => {
       }
 
       socket.join(gameId);
+    // Lähetä heti perään initial-state _huoneen sijasta suoraan tälle socke­tille_
+      const state = await gm.getSerializableState();   // jos sync, jätä await pois
+      io.to(socket.id).emit("initial_state", state);   // <- varmistaa että osuu perille
       socket.emit("joined", { success: true });
-      socket.emit("initial_state", gm.getSerializableState());
-      console.log(`👥  Socket ${socket.id} joined game ${gameId}`);
+
+      console.log(`👥  ${socket.id} joined, state bytes:`, JSON.stringify(state).length);
     } catch (err) {
       socket.emit("joined", { success: false, error: err.message });
     }

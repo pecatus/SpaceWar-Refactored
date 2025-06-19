@@ -1,5 +1,11 @@
 // frontend/js/client.js
 import { io } from "https://cdn.socket.io/4.7.5/socket.io.esm.min.js";
+import {
+  initThreeIfNeeded,
+  buildFromSnapshot,
+  applyDiff,
+  animate            
+} from './scene.js';
 
 /* ------------------------------------------------------------------ */
 /*  Konstit                                                            */
@@ -27,13 +33,19 @@ socket.on("connect", () => {
 });
 
 /* Kun backend ampuu alkutilan */
-socket.on("initial_state", handleInitialState);
+socket.on('initial_state', snap => {
+  console.log("📥 initial_state", snap);
+  initThreeIfNeeded();          // luo kamera / renderer jos ei jo ole
+  buildFromSnapshot(snap);      // tähdet + laivat
+  animate();                    // käynnistä silmukka (vain kerran)
+  document.getElementById('startScreen').style.display = 'none';
+  document.getElementById('uiContainer').style.display = 'flex';
+  
+});
 
-/* Diffit pelin edetessä */
 socket.on("game_diff", (diff) => {
-  // diff = taulukko action-objekteja
-  // Tässä päivität local state & three-maailman
   console.log("📦 diff", diff);
+  applyDiff(diff);
 });
 
 /* ------------------------------------------------------------------ */
@@ -54,18 +66,6 @@ async function createNewGame(payload) {
   return res.json();   // backend aina JSON → suoraan objektiksi
 }
 
-/* ------------------------------------------------------------------ */
-/*  UI-jutut                                                           */
-/* ------------------------------------------------------------------ */
-function handleInitialState(state) {
-  gameState = state;
-  console.log("📦 Saimme pelin alkutilan", state);
-
-  // TODO: initThreeJS(gameState);
-
-  startView.style.display = "none";
-  uiRoot.style.display    = "flex";
-}
 
 /* ------------------------------------------------------------------ */
 /*  START-NAPPI                                                        */

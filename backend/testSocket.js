@@ -4,7 +4,7 @@ const { io } = require('socket.io-client');
 // Muuta portti/URL jos server.js kuuntelee eri osoitteessa
 const socket = io('http://localhost:3001', { transports: ['websocket'] });
 
-const GAME_ID = '6852c960301db7414e29c599';
+const GAME_ID = '6853a9f6bba3d5b581c553a7';
 
 socket.on('connect', () => {
   console.log('✅  Yhteys avattu, id =', socket.id);

@@ -223,72 +223,121 @@ class AIController {
              build :{ type:bestAffordable.o.type, time:bestAffordable.o.cost.time } };
   }
 
+  /**
+   * Kerää kaikki mahdolliset rakennus-optiot yhdelle tähdelle
+   * ja pushaa ne `bucket`-taulukkoon muodossa
+   *   { star, type, cost, score }
+   */
   _enumerateBuildOptions(star, totalMines, bucket) {
-    const infraLvl = this._effectiveInfraLevel(star);
-    const limits   = this.infra[infraLvl];
-    const eWeights = earlyWeights(totalMines) || {};
+    /* ——— 1. Rajat & varmistukset ——— */
+    const infraLvl = this._effectiveInfraLevel(star);           // valmis + jonossa
+    const limits   = this.infra[infraLvl]                       // varovainen fallback
+                  ?? this.infra[Math.max(...Object.keys(this.infra))];
 
-    const push = (type, cost, mult=1) => {
+    const eWeights = earlyWeights(totalMines) || {};
+    const push = (type, cost, mult = 1) => {
       const w = eWeights[type] ?? eWeights.Infrastructure ?? 1;
-      bucket.push({ star, type, cost,
-                    score: this._scoreBuild(star, type) * w * mult });
+      bucket.push({
+        star, type, cost,
+        score: this._scoreBuild(star, type) * w * mult
+      });
     };
 
-    /* Infrastructure */
-    if (star.infrastructureLevel < 4 && !this._infraQueued(star)) {
+    /* ——— 2. Infrastructure (max 5) ——— */
+    if (star.infrastructureLevel < 5 && !this._infraQueued(star)) {
       const c = this._infraCost(star.infrastructureLevel);
       push(`Infrastructure Lvl ${c.nextLevel}`, c);
     }
-    /* Shipyard build / upgrade */
-    if (star.shipyardLevel === 0 && !this._yardQueued(star)) {
-      push('Shipyard', STRUCT_COST['Shipyard Lvl 1']);
-    } else if (star.shipyardLevel < limits.maxShipyard && !this._yardQueued(star)) {
+
+    /* ——— 3. Shipyard ——— */
+    const AI_YARD_CAP = 3;                       // AI hard-cap
+    const yardQueued  = this._yardQueued(star);
+
+    if (star.shipyardLevel === 0 && !yardQueued) {
+      // uusi telakka
+      push("Shipyard", STRUCT_COST["Shipyard Lvl 1"]);
+
+    } else if (
+      star.shipyardLevel < Math.min(limits.maxShipyard, AI_YARD_CAP) &&
+      !yardQueued
+    ) {
+      // päivitys (mutta AI maks. lvl 3)
       const c = this._shipyardCost(star.shipyardLevel);
       push(`Shipyard Lvl ${c.nextLevel}`, c);
     }
-    /* Mine */
-    if (this._hasMineRoom(star))
-      push('Mine', STRUCT_COST.Mine, this._mineRoomScale(star));
-    /* PD */
-    if (this._scoreBuild(star,'Defense Upgrade') > 0)
-      push('Defense Upgrade', STRUCT_COST['Defense Upgrade']);
+
+    /* ——— 4. Mine ——— */
+    if (this._hasMineRoom(star)) {
+      push("Mine", STRUCT_COST.Mine, this._mineRoomScale(star));
+    }
+
+    /* ——— 5. Planetary Defense ——— */
+    if (this._scoreBuild(star, "Defense Upgrade") > 0) {
+      push("Defense Upgrade", STRUCT_COST["Defense Upgrade"]);
+    }
   }
 
   /* ==================================================================== */
   /*  SHIPBUILDING                                                        */
   /* ==================================================================== */
   _buildShips(myStars, totalMines, totalShips) {
+    /* 0) quota-tarkistus – kaivoksia oltava tarpeeksi ennen sotakoneistoa */
     if (totalMines < this._requiredMines(totalShips)) return [];
 
-    const yards = myStars.filter(s=>s.shipyardLevel>0)
-                         .sort((a,b)=>b.shipyardLevel - a.shipyardLevel);
+    /* 1) kaikki telakat, paras level ensin */
+    const yards = myStars
+      .filter(st => st.shipyardLevel > 0)
+      .sort((a, b) => b.shipyardLevel - a.shipyardLevel);
 
-    const acts = [];
+    const acts             = [];
+    const AI_YARD_CAP      = 3;                 // AI:n “hard-cap” shipyard-tasolle
+    const EXPENSIVE_SHIPS  = new Set(EXPENSIVE_SHIP_TAGS);
+
     for (const st of yards) {
-      if ((st.shipQueue||[]).length >= 2) continue;
+      if ((st.shipQueue ?? []).length >= 2) continue;   // jonossa jo tarpeeksi
 
       const fleet = this._fleetAround(st);
       const prio  = this._shipPriorities(st, fleet);
 
       for (const type of prio) {
-        const [cC,cM,time,needLvl] = SHIP_COST[type];
+        /* --- A) datat tauluista --- */
+        const [cCred, cMin, buildTime, needLvl] = SHIP_COST[type];
+
+        /* --- B) AI ei rakenna > lvl-3 aluksia --- */
+        if (needLvl > AI_YARD_CAP) continue;            // pelaajan erikois-alus tms.
+
+        /* --- C) telakan taso riittääkö? --- */
         if (st.shipyardLevel < needLvl) continue;
 
-        const cost = { credits:cC, minerals:cM };
+        /* --- D) rahatilanne --- */
+        const cost = { credits: cCred, minerals: cMin };
         if (!affordable(cost, this.war)) {
-          const expensive = EXPENSIVE_SHIP_TAGS.includes(type);
-          if (expensive &&
-              (this.war.credits  >= WAIT_THRESHOLD*cC ||
-               this.war.minerals >= WAIT_THRESHOLD*cM))
-            break;                       // jatka säästämistä
+
+          /* kalliista laivasta voidaan säästää */
+          const expensive = EXPENSIVE_SHIPS.has(type);
+          if (
+            expensive &&
+            (this.war.credits  >= WAIT_THRESHOLD * cCred ||
+            this.war.minerals >= WAIT_THRESHOLD * cMin)
+          ) {
+            /* Jatka säästämistä: älä pudottaudu Fightereihin saman vuoron aikana */
+            break;
+          }
+          /* Ei varaa → kokeile seuraavaa prio-tyyppiä */
           continue;
         }
 
+        /* --- E) maksa & puskuroi diff-action --- */
         pay(cost, this.war, this.res);
-        acts.push({ action:'QUEUE_SHIP',
-                    starId:st.id,
-                    build :{ type, time } });
-        break;                           // yksi laiva / telakka / tick
+
+        acts.push({
+          action : "QUEUE_SHIP",
+          starId : st.id,
+          build  : { type, time: buildTime }
+        });
+
+        /* Yksi alus / telakka / tick – siirry seuraavaan telakkaan */
+        break;
       }
     }
     return acts;

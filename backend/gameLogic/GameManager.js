@@ -22,7 +22,9 @@ const INFRA_LIMITS = {
   0: { maxPop: 5,  maxMines: 5,  maxDefense: 1, maxShipyard: 1 },
   1: { maxPop: 10, maxMines: 10, maxDefense: 2, maxShipyard: 2 },
   2: { maxPop: 15, maxMines: 15, maxDefense: 4, maxShipyard: 3 },
-  3: { maxPop: 20, maxMines: 20, maxDefense: 6, maxShipyard: 4 }
+  3: { maxPop: 20, maxMines: 20, maxDefense: 6, maxShipyard: 4 },
+  4: { maxPop: 25, maxMines: 25, maxDefense: 8, maxShipyard: 4 },
+  5: { maxPop: 30, maxMines: 30, maxDefense:10, maxShipyard: 4 }
 };
 const SHIP_SPEEDS = { fast: 60, slow: 6, fighterSlow: 12 };
 const TICK_MS     = 1000;           // 1 s
@@ -106,15 +108,23 @@ class GameManager extends EventEmitter {
         const ownerSlot   = playerCycle[i % playerCycle.length];  // 0..N..null
         const isHomeworld = ownerSlot && i < players.length;      // eka kierros = kotitähti
 
-        stars.push(new Star({
-        gameId  : this.gameId,
-        ownerId : ownerSlot,          // null → “neutral”
-        name    : `Star ${i + 1}`,
-        isHomeworld,
-        position: { x: Math.random()*1000, y: Math.random()*1000, z: 0 },
-        infrastructureLevel : 1
-        }));
-    }
+        /* Kotiplaneettoihin heti telakka + kaivos */
+        const starData = {
+          gameId  : this.gameId,
+          ownerId : ownerSlot,                      // null → neutral
+          name    : `Star ${i + 1}`,
+          isHomeworld,
+          position: { x: Math.random()*1000, y: Math.random()*1000, z: 0 },
+          infrastructureLevel : 1,
+
+          /* --- start-bonukset vain homeworldille --- */
+          mines         : isHomeworld ? 1 : 0,
+          shipyardLevel : isHomeworld ? 1 : 0,
+          population    : isHomeworld ? 5 : 0      // valinnainen: 3 pop heti
+        };
+
+        stars.push(new Star(starData));
+        }
     await Star.insertMany(stars);
 
     /* 4) Päivitä Game-doc (optio, jos haluat tallentaa listat viitteinä myöhemmin) */
@@ -162,7 +172,7 @@ class GameManager extends EventEmitter {
   }
 
   /* ======================================================================= */
-  /*  ----------  SIMULAATIOLOOPPU  ---------------------------------------- */
+  /*  ----------  SIMULAATIOLOOPPI  ---------------------------------------- */
   /* ======================================================================= */
 
   start() {
@@ -175,14 +185,104 @@ class GameManager extends EventEmitter {
   }
 
   async _tick() {
+    this._turn = (this._turn ?? 0) + 1;      // debug-laskuri
+
     this._advanceEconomy();
 
+    const diff = [];
+    this._advanceConstruction(diff);         // <──  ⇦  UUSI
+
+    /* ---- 1) Lasketaan kunkin AI:n tulot tästä 1 s tikistä -------------- */
     const aiActions = [];
-    this.ai.forEach(ai => aiActions.push(...ai.runTurn()));
+    this.ai.forEach((ai, aiId) => {
+      const wallet = this.state.resources[aiId];
+      const income = {
+        credits  : wallet.credits  - ai.prevRes.credits,
+        minerals : wallet.minerals - ai.prevRes.minerals
+      };
+
+      /*  -- DEBUG: näytä paljonko tuli rahaa tähän tikkiin -- */
+      console.log(`[AI-INCOME] turn=${this._turn ?? 0}  ${aiId.slice(-4)}  +${income.credits}/${income.minerals}`);
+
+      aiActions.push(...ai.runTurn(this._turn ?? 0, income));
+    });
+
     await this._applyActions(aiActions);
-    await this._flush(aiActions);
+    diff.push(...aiActions);                 // diffin jatkoksi
+
+    await this._flush(diff);
   }
 
+
+  /* -------------------------------------------------- */
+/*  Rakennusten & laivojen valmistuminen              */
+/* -------------------------------------------------- */
+_advanceConstruction(diff) {
+  /* PLANETARY ------------------------------------------------ */
+  this.state.stars.forEach(star => {
+    if (!star.planetaryQueue?.length) return;
+
+    // Vähennä ensimmäisen jonossa olevan aikaa
+    const job = star.planetaryQueue[0];
+    job.timeLeft -= 1;
+
+    // Debug – näet tikit terminaalissa
+    console.log(`[TICK ${this._turn}] ${star.name.padEnd(10)} | `
+      + `build=${job.type} | left=${job.timeLeft}`);
+
+    // Valmis?
+    if (job.timeLeft <= 0) {
+      // 1. Pysyvä vaikutus planeettaan
+      if (job.type === 'Mine')             star.mines          += 1;
+      else if (job.type === 'Defense Upgrade') star.defenseLevel  += 1;
+      else if (job.type.startsWith('Shipyard')) star.shipyardLevel += 1;
+      else if (job.type.startsWith('Infrastructure')) {
+        const lvl = parseInt(job.type.match(/\d+/)[0], 10);
+        star.infrastructureLevel = lvl;
+      }
+
+      // 2. Poista jonosta ja tallenna
+      star.planetaryQueue.shift();
+      star.markModified('planetaryQueue');  // varmistaa Mongoose-savennuksen
+
+      diff.push({
+        action : 'COMPLETE_PLANETARY',
+        starId : star._id,
+        type   : job.type
+      });
+    }
+  });
+
+  /* SHIPS ---------------------------------------------------- */
+  this.state.stars.forEach(star => {
+    if (!star.shipQueue?.length) return;
+
+    const job = star.shipQueue[0];
+    job.timeLeft -= 1;
+
+    if (job.timeLeft <= 0) {
+      // Luo varsinainen Ship-doc
+      this.state.ships.push(new Ship({
+        gameId      : this.gameId,
+        ownerId     : star.ownerId,
+        type        : job.type,
+        state       : 'orbiting',
+        parentStarId: star._id
+      }));
+
+      star.shipQueue.shift();
+      star.markModified('shipQueue');
+
+      diff.push({
+        action : 'SHIP_SPAWNED',
+        starId : star._id,
+        type   : job.type
+      });
+    }
+  });
+}
+
+  
   /* ---------------- ECONOMY ---------------- */
     _advanceEconomy () {
     /* 1) kerää 10 yhden sekunnin tickiä yhteen sykliksi  -------- */
@@ -286,7 +386,8 @@ async _applyActions(actions) {
 
   /* ---------------- FLUSH + BROADCAST ----- */
   async _flush(diff) {
-    if (!this.io) return;
+    if (!this.io || !diff.length) return;
+    console.log(`[SEND] diff`, diff);        // debug
     this.io.to(this.gameId.toString()).emit("game_diff", diff);
   }
 
@@ -294,6 +395,16 @@ async _applyActions(actions) {
   _humanId(players) { return (players || []).find(p => !p.isAI)?._id?.toString() ?? ""; }
   _star(id) { return this.state.stars.find(s => s._id.toString() === id.toString()); }
   _ship(id) { return this.state.ships.find(s => s._id.toString() === id.toString()); }
+    /** Palauttaa serialisoitavan snapshotin koko pelitilasta. */
+  getSerializableState () {
+    const stars = this.state.stars.map(s => s.toObject({ depopulate: true }));
+    const ships = this.state.ships.map(s => s.toObject({ depopulate: true }));
+    return {
+      stars,
+      ships,
+      resources: this.state.resources
+    };
+  }
 }
 
 module.exports = GameManager;
