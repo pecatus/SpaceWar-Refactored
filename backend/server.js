@@ -52,10 +52,12 @@ const io = new Server(httpSrv, {
 /* Käytetään muistissa pientä manager-cachea: Map<gameId, GameManager> */
 const managers = new Map();
 
+
 /* ---- Socket-tapahtumat ------------------------------ */
 io.on("connection", socket => {
   console.log("🔌  Client connected", socket.id);
-    socket.emit('hello', 'world');
+  socket.emit('hello', 'world');
+  
   /* Client pyytää liittymään peliin */
   socket.on("join_game", async ({ gameId }) => {
     try {
@@ -71,7 +73,7 @@ io.on("connection", socket => {
       }
 
       socket.join(gameId);
-    // Lähetä heti perään initial-state _huoneen sijasta suoraan tälle socke­tille_
+      // Lähetä heti perään initial-state _huoneen sijasta suoraan tälle socke­tille_
       const state = await gm.getSerializableState();   // jos sync, jätä await pois
       io.to(socket.id).emit("initial_state", state);   // <- varmistaa että osuu perille
       socket.emit("joined", { success: true });
@@ -79,6 +81,36 @@ io.on("connection", socket => {
       console.log(`👥  ${socket.id} joined, state bytes:`, JSON.stringify(state).length);
     } catch (err) {
       socket.emit("joined", { success: false, error: err.message });
+    }
+  });
+
+  /* Player command handling */
+  socket.on("player_command", async (command) => {
+    try {
+      console.log("🎮 Player command received:", command);
+      
+      // Find which game this socket belongs to
+      const gameId = Array.from(socket.rooms).find(room => 
+        room !== socket.id && managers.has(room)
+      );
+      
+      if (!gameId) {
+        console.error("❌ No active game found for socket", socket.id);
+        return;
+      }
+      
+      const gm = managers.get(gameId);
+      if (!gm) {
+        console.error("❌ Game manager not found for", gameId);
+        return;
+      }
+      
+      // Process the command
+      await gm._applyActions([command]);
+      
+    } catch (err) {
+      console.error("❌ Error processing player command:", err);
+      socket.emit("command_error", { error: err.message });
     }
   });
 

@@ -1,138 +1,209 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SpaceWar</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SpaceWar - Refactored</title>
+    
+    <!-- Tailwind CSS (local build) -->
+    <link rel="stylesheet" href="tailwind-build.css" />
+    
+    <!-- External libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tween.js/20.0.3/tween.umd.js"></script>
+    
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: "Inter", sans-serif;
+            background-color: #000000;
+            color: #e5e7eb;
+        }
 
-  <!-- Tailwind build (oletus että tiedosto löytyy public-juuresta) -->
-  <link rel="stylesheet" href="tailwind-build.css" />
+        /* ========== START SCREEN ========== */
+        #startScreen {
+            position: absolute;
+            inset: 0;
+            background-color: rgba(17, 24, 39, 0.95);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            overflow-y: auto;
+            padding: 20px;
+        }
+        
+        #startScreenPanelsContainer {
+            display: flex;
+            flex-direction: row;
+            justify-content: center;
+            align-items: flex-start;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
 
-  <!-- CDN-kirjastot -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/tween.js/20.0.3/tween.umd.js"></script>
+        /* ========== UI PANELS ========== */
+        #uiContainer {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            width: auto;
+            padding: 0;
+            display: none;
+            flex-direction: column;
+            align-items: flex-start;
+            pointer-events: none;
+            z-index: 5;
+        }
+        
+        .infoPanel {
+            background-color: rgba(31, 41, 55, 0.85);
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+            color: #e5e7eb;
+            pointer-events: auto;
+            min-width: 240px;
+            width: 240px;
+            margin-bottom: 10px;
+        }
+        
+        .infoPanel:last-child {
+            margin-bottom: 0;
+        }
+        
+        .infoPanel h3 {
+            font-size: 1.25rem;
+            margin-bottom: 10px;
+            color: #9ca3af;
+            border-bottom: 1px solid #4b5563;
+            padding-bottom: 8px;
+        }
+        
+        .infoPanel label,
+        .infoPanel span,
+        .infoPanel li {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 0.875rem;
+        }
+        
+        .infoPanel ul {
+            list-style-type: disc;
+            padding-left: 20px;
+        }
 
- <style>
-    body {
-      margin: 0;
-      overflow: hidden;
-      font-family: "Inter", sans-serif;
-      background-color: #000;
-      color: #e5e7eb;
-    }
+        /* ========== BUTTONS & CONTROLS ========== */
+        .infoPanel select,
+        .infoPanel button {
+            position: relative;
+            overflow: hidden;
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 1px solid #4b5563;
+            background-color: #374151;
+            color: #e5e7eb;
+            margin-top: 6px;
+            cursor: pointer;
+            transition: background-color 0.3s, box-shadow 0.3s;
+            width: 100%;
+            box-sizing: border-box;
+            font-size: 0.875rem;
+            text-align: center;
+        }
+        
+        .infoPanel button span {
+            position: relative;
+            z-index: 2;
+            display: inline-block;
+            width: 100%;
+            pointer-events: none;
+        }
 
-    /* ---------- Start-screen ----------- */
-    #startScreen {
-      position: absolute;
-      inset: 0;
-      background-color: rgba(17, 24, 39, 0.95);
-      display: flex;
-      flex-direction: column;
-      justify-content: center;
-      align-items: center;
-      z-index: 100;
-      overflow-y: auto;
-      padding: 20px;
-    }
-    #startScreenPanelsContainer {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 20px;
-      justify-content: center;
-      align-items: flex-start;
-    }
+        .infoPanel button:not(#startGameButton):not(#resumeGameButton) {
+            margin-top: 8px;
+        }
+        
+        #startGameButton,
+        #resumeGameButton {
+            background-color: #2563eb;
+            font-weight: bold;
+            margin-top: 10px;
+        }
+        
+        #resumeGameButton {
+            background-color: #10b981;
+        }
+        
+        #startGameButton:hover,
+        #resumeGameButton:hover {
+            background-color: #1d4ed8;
+        }
+        
+        #resumeGameButton:hover {
+            background-color: #059669;
+        }
 
-    /* ---------- UI-paneelit ----------- */
-    #uiContainer {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      width: auto;
-      padding: 0;
-      display: none;          /* Näkyviin vasta pelissä */
-      flex-direction: column;
-      align-items: flex-start;
-      /* pointer-events NONE poistettu → paneelit heti klikattavissa */
-      z-index: 5;
-    }
-    .infoPanel {
-      background: rgba(31, 41, 55, 0.85);
-      padding: 15px;
-      border-radius: 8px;
-      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-      min-width: 240px;
-      width: 240px;
-      margin-bottom: 10px;
-    }
-    .infoPanel:last-child { margin-bottom: 0; }
-    .infoPanel h3 {
-      font-size: 1.25rem;
-      margin-bottom: 10px;
-      color: #9ca3af;
-      border-bottom: 1px solid #4b5563;
-      padding-bottom: 8px;
-    }
-    .infoPanel label,
-    .infoPanel span,
-    .infoPanel li {
-      display: block;
-      margin-bottom: 6px;
-      font-size: 0.875rem;
-    }
-    .infoPanel ul { list-style: disc; padding-left: 20px; }
+        .infoPanel button:disabled {
+            background-color: #4b5563;
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
+        
+        .infoPanel select:hover,
+        .infoPanel button:not(:disabled):hover {
+            background-color: #4b5563;
+        }
+        
+        .infoPanel select:focus,
+        .infoPanel button:focus {
+            outline: none;
+            box-shadow: 0 0 0 3px #60a5fa;
+        }
 
-    /* ---------- Yleiset napit / selectit ----------- */
-    .infoPanel select,
-    .infoPanel button {
-      position: relative;
-      overflow: hidden;
-      width: 100%;
-      padding: 8px 12px;
-      margin-top: 6px;
-      font-size: 0.875rem;
-      color: #e5e7eb;
-      background: #374151;
-      border: 1px solid #4b5563;
-      border-radius: 6px;
-      cursor: pointer;
-      transition: background-color 0.3s, box-shadow 0.3s;
-      text-align: center;
-    }
-    .infoPanel button span { position: relative; z-index: 2; pointer-events: none; }
-    .infoPanel button:not(#startGameButton):not(#resumeGameButton) { margin-top: 8px; }
-    #startGameButton, #resumeGameButton { background: #2563eb; font-weight: 700; margin-top: 10px; }
-    #resumeGameButton { background: #10b981; }
-    #startGameButton:hover, #resumeGameButton:hover { background: #1d4ed8; }
-    #resumeGameButton:hover { background: #059669; }
-    .infoPanel button:disabled { background: #4b5563; cursor: not-allowed; opacity: 0.7; }
-    .infoPanel select:hover,
-    .infoPanel button:not(:disabled):hover { background: #4b5563; }
-    .infoPanel select:focus,
-    .infoPanel button:focus {
-      outline: none;
-      box-shadow: 0 0 0 3px #60a5fa;
-    }
+        /* ========== PROGRESS BARS ========== */
+        .button-progress-bar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            height: 100%;
+            top: 0;
+            background-color: rgba(96, 165, 250, 0.4);
+            width: 0%;
+            transition: width 0.1s linear;
+            z-index: 1;
+            border-radius: 0;
+            pointer-events: none;
+        }
+        
+        /* Specific colors for different types */
+        #progress-Infrastructure {
+            background-color: rgba(139, 92, 246, 0.4);
+        }
+        
+        #progress-Shipyard,
+        #progress-UpgradeShipyard {
+            background-color: rgba(245, 158, 11, 0.4);
+        }
+        
+        #progress-Mine {
+            background-color: rgba(160, 166, 179, 0.5);
+        }
+        
+        #progress-Defense {
+            background-color: rgba(239, 68, 68, 0.4);
+        }
+        
+        #progress-Fighter,
+        #progress-Destroyer,
+        #progress-Cruiser,
+        #progress-SlipstreamFrigate {
+            background-color: rgba(59, 130, 246, 0.4);
+        }
 
-    /* ---------- Progress-overlay napin sisällä ----------- */
-    .button-progress-bar {
-      position: absolute;
-      inset: 0;
-      width: 0%;
-      background: rgba(96, 165, 250, 0.4);
-      transition: width 0.1s linear;
-      z-index: 1;
-      pointer-events: none;
-    }
-    #progress-Infrastructure { background: rgba(139, 92, 246, 0.4); }
-    #progress-Shipyard,
-    #progress-UpgradeShipyard { background: rgba(245, 158, 11, 0.4); }
-    #progress-Mine { background: rgba(160, 166, 179, 0.5); }
-    #progress-Defense { background: rgba(239, 68, 68, 0.4); }
-    #progress-Fighter,
-    #progress-Destroyer,
-    #progress-Cruiser { background: rgba(59, 130, 246, 0.4); }
-
-        /* AI player settings */
+        /* ========== AI PLAYER SETTINGS ========== */
         .ai-player-config {
             margin-top: 10px;
             padding: 10px;
@@ -140,11 +211,13 @@
             border-radius: 6px;
             background-color: rgba(55, 65, 81, 0.5);
         }
+        
         .ai-player-config label {
             font-size: 0.875rem;
             color: #d1d5db;
             margin-bottom: 4px;
         }
+        
         .ai-color-picker {
             width: 100%;
             height: 40px;
@@ -154,8 +227,12 @@
             margin-top: 4px;
         }
 
-        #planetMenu { display: none; }
-        #selectedUnitsPanel { 
+        /* ========== GAME UI ========== */
+        #planetMenu {
+            display: none;
+        }
+        
+        #selectedUnitsPanel {
             position: absolute;
             bottom: 10px;
             left: 10px;
@@ -164,258 +241,326 @@
             border-radius: 8px;
             color: #e5e7eb;
             font-size: 0.875rem;
-            z-index: 6; 
-            display: none; 
+            z-index: 6;
+            display: none;
         }
 
-
-        #gameCanvas { display: block; width: 100vw; height: 100vh; position: fixed; top:0; left:0; z-index: 1; cursor: default;}
+        /* ========== CANVAS ========== */
+        #gameCanvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            position: fixed;
+            top: 0;
+            left: 0;
+            z-index: 1;
+            cursor: default;
+        }
+        
         #selectionBox {
-            position: absolute; border: 1px dashed #888888; /* Grey border */
-            background-color: rgba(136, 136, 136, 0.1); /* Grey background */
-            pointer-events: none; 
-            display: none; z-index: 99;
+            position: absolute;
+            border: 1px dashed #888888;
+            background-color: rgba(136, 136, 136, 0.1);
+            pointer-events: none;
+            display: none;
+            z-index: 99;
         }
-        /* Keep general progress bar styles for reference or other uses */
+
+        /* ========== PROGRESS BAR CONTAINERS ========== */
         .progressBarContainer {
-            width: 100%; background-color: #4b5563; 
-            border-radius: 0.25rem; height: 1.1rem; 
-            margin-top: 0.25rem; 
-            overflow: hidden; position: relative; 
+            width: 100%;
+            background-color: #4b5563;
+            border-radius: 0.25rem;
+            height: 1.1rem;
+            margin-top: 0.25rem;
+            overflow: hidden;
+            position: relative;
         }
-        .progressBarFill { 
-            background-color: #3b82f6; 
+        
+        .progressBarFill {
+            background-color: #3b82f6;
             height: 100%;
-            position: absolute; top: 0; left: 0;
-            transition: width 0.1s linear; 
-            pointer-events:none; 
+            position: absolute;
+            top: 0;
+            left: 0;
+            transition: width 0.1s linear;
+            pointer-events: none;
         }
-        #planetaryConstructionProgressBarFill { 
-            background-color: #6d28d9; 
+        
+        #planetaryConstructionProgressBarFill {
+            background-color: #6d28d9;
         }
+        
         #populationProgressBarFill {
-            background-color: #10b981; 
+            background-color: #10b981;
         }
+        
         #conquestProgressBarFill {
-             background-color: #f59e0b; 
+            background-color: #f59e0b;
         }
-        .progressBarText { 
-            position: absolute; width: 100%; height: 100%;
-            top: 0; left: 0; display: flex;
-            align-items: center; justify-content: center;
-            color: white; font-size: 0.7rem; 
-            line-height: 1.1rem; text-align: center; z-index: 1; 
+        
+        .progressBarText {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 0.7rem;
+            line-height: 1.1rem;
+            text-align: center;
+            z-index: 1;
         }
-        .progressLabel { 
-            font-size: 0.75rem; color: #9ca3af; 
-            margin-top: 0.25rem; display: block;
+        
+        .progressLabel {
+            font-size: 0.75rem;
+            color: #9ca3af;
+            margin-top: 0.25rem;
+            display: block;
         }
-        .queueTitle { 
+        
+        .queueTitle {
             font-size: 0.8rem;
-            color: #d1d5db; 
+            color: #d1d5db;
             margin-top: 10px;
             margin-bottom: 2px;
             font-weight: 500;
         }
-        .queueInfo { 
+        
+        .queueInfo {
             font-size: 0.75rem;
             color: #9ca3af;
             margin-bottom: 4px;
         }
-        /* Added margin for better spacing in planet menu */
-        #planetMenu > span.mt-3 { /* More specific selector for spacing */
-             margin-top: 0.75rem !important; 
-        }
-         #planetMenu > button { 
-             margin-top: 0.25rem; 
-        }
-         #planetMenu > .queueTitle {
-             margin-top: 1.25rem; 
-         }
 
-        /*planetary queuen idle-tekstin väri harmaaksi */
+        /* Better spacing in planet menu */
+        #planetMenu > span.mt-3 {
+            margin-top: 0.75rem !important;
+        }
+        
+        #planetMenu > button {
+            margin-top: 0.25rem;
+        }
+        
+        #planetMenu > .queueTitle {
+            margin-top: 1.25rem;
+        }
+
+        /* Idle queue text styling */
         #planetaryQueueTotalProgressText[idle],
-        #shipQueueTotalProgressText[idle] { color:#9ca3af; }
-
-        /* ———  GAME-SPEED-PANEELI  ——————————————————————————————— */
-        #speedPanel{
-        position: fixed;
-        top: 0.5rem;          /* top-2  (≈ 8 px)  */
-        right: 0.75rem;       /* right-3 (≈ 12 px) */
-        z-index: 50;          /* z-50   */
-        display: flex;        /* flex   */
-        gap: 0.25rem;         /* gap-1  */
-        pointer-events: auto; /* jotta nappulat saa klikattua */
+        #shipQueueTotalProgressText[idle] {
+            color: #9ca3af;
         }
 
-        #speedPanel button{
-        background: #374151;      /* bg-gray-700 */
-        color: #e5e7eb;           /* text-gray-200 */
-        padding: 0.25rem 0.5rem;  /* py-1 px-2   */
-        font-size: 0.875rem;      /* text-sm     */
-        border: 1px solid #4b5563;
-        border-radius: 0.375rem;  /* rounded-md  */
-        cursor: pointer;
-        transition: background-color .15s ease;
+        /* ========== SPEED PANEL ========== */
+        #speedPanel {
+            position: fixed;
+            top: 0.5rem;
+            right: 0.75rem;
+            z-index: 50;
+            display: flex;
+            gap: 0.25rem;
+            pointer-events: auto;
         }
 
-        #speedPanel button:hover:not(.active){
-        background: #4b5563;      /* hover-tausta hieman vaaleampi */
+        #speedPanel button {
+            background: #374151;
+            color: #e5e7eb;
+            padding: 0.25rem 0.5rem;
+            font-size: 0.875rem;
+            border: 1px solid #4b5563;
+            border-radius: 0.375rem;
+            cursor: pointer;
+            transition: background-color .15s ease;
         }
 
-        #speedPanel button.active{
-        background: #2563eb;      /* bg-blue-600 */
-        font-weight: 700;         /* font-bold   */
+        #speedPanel button:hover:not(.active) {
+            background: #4b5563;
         }
 
-        #speedPanel button:focus{
-        outline: none;
-        box-shadow: 0 0 0 3px rgba(96,165,250,.6); /* sama kuin Tailwind focus-rengas */
+        #speedPanel button.active {
+            background: #2563eb;
+            font-weight: 700;
         }
 
-        .groups-panel{
-        position:fixed;       /* kelluu ruudulla */
-        bottom:20px; left:50%;
-        transform:translateX(-50%);
-        display:flex; flex-direction:column; align-items:center;
-        pointer-events:auto; z-index:6;
-        }
-        .groups-title{font-size:.8rem;color:#9ca3af;margin-bottom:4px;letter-spacing:.05em;text-transform:uppercase;}
-        .groups-buttons{display:flex;gap:4px;flex-wrap:wrap;justify-content:center;margin-bottom: 8px;}
-        .group-btn{
-        min-width:78px;            /* vähän leveämpi että teksti mahtuu */
-        padding:4px 8px;
-        border-radius:6px;
-        background:#374151;        /* sama harmaa kuin muissa napeissa */
-        border:1px solid #4b5563;
-        color:#e5e7eb;
-        font-size:.70rem;          /* hieman pienempi fontti */
-        line-height:1.1rem;
-        text-align:left;           /* rivit allekkain vasuriin */
-        cursor:pointer;
-        transition:background-color .15s ease, transform .15s ease;
-        }
-        .group-btn:hover{
-        background:#4b5563;        /* vaaleampi hover-tausta */
-        transform:translateY(-1px);/* kevyt liike ylös */
-        }
-        .group-btn:active{
-        transform:translateY(0);   /* paina takaisin alas */
+        #speedPanel button:focus {
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(96, 165, 250, .6);
         }
 
+        /* ========== GROUPS PANEL ========== */
+        .groups-panel {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            pointer-events: auto;
+            z-index: 6;
+        }
+        
+        .groups-title {
+            font-size: .8rem;
+            color: #9ca3af;
+            margin-bottom: 4px;
+            letter-spacing: .05em;
+            text-transform: uppercase;
+        }
+        
+        .groups-buttons {
+            display: flex;
+            gap: 4px;
+            flex-wrap: wrap;
+            justify-content: center;
+            margin-bottom: 8px;
+        }
+        
+        .group-btn {
+            min-width: 78px;
+            padding: 4px 8px;
+            border-radius: 6px;
+            background: #374151;
+            border: 1px solid #4b5563;
+            color: #e5e7eb;
+            font-size: .70rem;
+            line-height: 1.1rem;
+            text-align: left;
+            cursor: pointer;
+            transition: background-color .15s ease, transform .15s ease;
+        }
+        
+        .group-btn:hover {
+            background: #4b5563;
+            transform: translateY(-1px);
+        }
+        
+        .group-btn:active {
+            transform: translateY(0);
+        }
+
+        /* ========== TOOLTIP ========== */
         #custom-tooltip {
-        position: absolute;
-        background-color: rgba(17, 24, 39, 0.95); /* Tumma, UI:hin sopiva tausta */
-        color: #e5e7eb;
-        padding: 8px 12px;
-        border-radius: 6px;
-        border: 1px solid #4b5563;
-        font-size: 14px; /* Suurempi fonttikoko */
-        z-index: 101;    /* Varmistaa, että on kaiken päällä */
-        pointer-events: none; /* Ei häiritse hiiren klikkauksia */
-        white-space: nowrap;
-        transition: opacity 0.1s ease;
-        opacity: 0;
+            position: absolute;
+            background-color: rgba(17, 24, 39, 0.95);
+            color: #e5e7eb;
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 1px solid #4b5563;
+            font-size: 14px;
+            z-index: 101;
+            pointer-events: none;
+            white-space: nowrap;
+            transition: opacity 0.1s ease;
+            opacity: 0;
         }
 
         #custom-tooltip.visible {
             opacity: 1;
         }
-
     </style>
 </head>
 
-
 <body>
+    <!-- START SCREEN -->
     <div id="startScreen">
         <div id="startScreenPanelsContainer">
-            <!-- Legend panel on the left -->
+            <!-- Legend Panel -->
             <div id="legendPanel" class="infoPanel">
                 <h3>Game Legend</h3>
 
                 <h4 class="mt-2 font-medium text-sm text-gray-400">SHIPS</h4>
                 <ul class="list-disc pl-5 text-xs">
-                <li>
-                    <strong>Fighter</strong> (1 dmg, 1 HP) – 
-                    <em>Strong vs. Cruisers, weak vs. Destroyers, minimal PD damage (0.25)</em>
+                    <li>
+                        <strong>Fighter</strong> (1 dmg, 1 HP) – 
+                        <em>Strong vs. Cruisers, weak vs. Destroyers, minimal PD damage (0.25)</em>
                         Requires: <em>Shipyard lvl 1</em>
-                    
-                </li>
-                <li>
-                    <strong>Destroyer</strong> (2 × 1 dmg, 2 HP) –  
-                    <em>First-Strike vs. Fighters, weak vs. Cruisers, low PD damage (0.5)</em>
+                    </li>
+                    <li>
+                        <strong>Destroyer</strong> (2 × 1 dmg, 2 HP) –  
+                        <em>First-Strike vs. Fighters, weak vs. Cruisers, low PD damage (0.5)</em>
                         Requires: <em>Shipyard lvl 2</em>
-                    
-                </li>
-                <li>
-                    <strong>Cruiser</strong> (3 dmg, 3 HP) –   
-                    <em>First-Strike vs. Destroyers & PD, weak vs. Fighters, fastest conquest</em>
+                    </li>
+                    <li>
+                        <strong>Cruiser</strong> (3 dmg, 3 HP) –   
+                        <em>First-Strike vs. Destroyers & PD, weak vs. Fighters, fastest conquest</em>
                         Requires: <em>Shipyard lvl 3</em>
-                    
-                </li>
+                    </li>
                 </ul>
 
                 <h4 class="mt-3 font-medium text-sm text-gray-400">PLANETARY DEVELOPMENT</h4>
                 <ul class="list-disc pl-5 text-xs">
-                <li>
-                    <strong>Population</strong> – +1 credit / 10 s per pop
-                </li>
-                <li>
-                    <strong>Minerals</strong> – +1 mineral / 10 s per mine
-                </li>
+                    <li>
+                        <strong>Population</strong> – +1 credit / 10 s per pop
+                    </li>
+                    <li>
+                        <strong>Minerals</strong> – +1 mineral / 10 s per mine
+                    </li>
                 </ul>
 
                 <h4 class="mt-3 font-medium text-sm text-gray-400">BUILDINGS</h4>
                 <ul class="list-disc pl-5 text-xs">
-                <li>
-                    <strong>Mine</strong> – +1 mine (+1 mineral / 10 s)
-                </li>
-                <li>
-                    <strong>Planetary Defense</strong> – 3 × First-Strike, 2 dmg/shot, 2 HP
-                </li>
+                    <li>
+                        <strong>Mine</strong> – +1 mine (+1 mineral / 10 s)
+                    </li>
+                    <li>
+                        <strong>Planetary Defense</strong> – 3 × First-Strike, 2 dmg/shot, 2 HP
+                    </li>
                 </ul>
 
                 <h4 class="mt-3 font-medium text-sm text-gray-400">UPGRADES</h4>
                 <ul class="list-disc pl-5 text-xs">
-                <li>
-                    <strong>Infrastructure (lvl 1–6)</strong>  
-                    <em>Unlocks Shipyard upgrades, +5 population cap, +5 mine cap, +1–2 PD cap</em>
-                </li>
-                <li>
-                    <strong>Shipyard (lvl 1–3)</strong>  
-                    <em>lvl 2 → Destroyers; lvl 3 → Cruisers</em>
-                </li>
+                    <li>
+                        <strong>Infrastructure (lvl 1–6)</strong>  
+                        <em>Unlocks Shipyard upgrades, +5 population cap, +5 mine cap, +1–2 PD cap</em>
+                    </li>
+                    <li>
+                        <strong>Shipyard (lvl 1–3)</strong>  
+                        <em>lvl 2 → Destroyers; lvl 3 → Cruisers</em>
+                    </li>
                 </ul>
             </div>
+
+            <!-- Game Setup Panel -->
             <div id="gameSetupPanel" class="infoPanel">
                 <h3>Game Settings</h3>
                 <label for="starCount">Number of Stars:</label>
                 <select id="starCount">
-                    <option value="75">75 Stars - EASY</option><option value="150" selected >150 Stars - NORMAL</option>
-                    <option value="250">250 Stars - HARD</option><option value="500">500 Stars - VERY HARD</option>
+                    <option value="75">75 Stars - EASY</option>
+                    <option value="150" selected>150 Stars - NORMAL</option>
+                    <option value="250">250 Stars - HARD</option>
+                    <option value="500">500 Stars - VERY HARD</option>
                 </select>
+                
                 <label for="numAiPlayers" class="block mt-3">Number of AI Opponents (1-4):</label>
-                    <select id="numAiPlayers" class="mt-1 block w-full py-2 px-3 border border-gray-600 bg-gray-700 text-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
-                        <option value="1" selected>1</option>
-                        <option value="2">2</option>
-                        <option value="3">3</option>
-                        <option value="4">4</option>
-                    </select>
-                    <div id="aiPlayerSettingsContainer" class="mt-3">
+                <select id="numAiPlayers" class="mt-1 block w-full py-2 px-3 border border-gray-600 bg-gray-700 text-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm">
+                    <option value="1" selected>1</option>
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                    <option value="4">4</option>
+                </select>
+                
+                <div id="aiPlayerSettingsContainer" class="mt-3">
+                    <!-- AI player settings will be populated by JavaScript -->
                 </div>
+                
                 <button id="startGameButton"><span>Start Game</span></button>
                 <button id="resumeGameButton" style="display: none;"><span>Resume Game</span></button>
             </div>
-                <div id="controlsGuidePanel" class="infoPanel">
+
+            <!-- Controls Guide Panel -->
+            <div id="controlsGuidePanel" class="infoPanel">
                 <h3>Controls Guide</h3>
 
-                <!-- GAME -------------------------------------------------------->
                 <h4 class="mt-2 font-medium text-sm text-gray-400">GAME</h4>
                 <ul class="list-disc pl-5 text-xs">
                     <li><strong>ESC:</strong> <em>Pause / Show This Menu</em></li>
                 </ul>
 
-                <!-- CAMERA ------------------------------------------------------>
                 <h4 class="mt-3 font-medium text-sm text-gray-400">CAMERA</h4>
                 <ul class="list-disc pl-5 text-xs">
                     <li><strong>LMB + Drag:</strong><em> Rotate View</em></li>
@@ -424,7 +569,6 @@
                     <li><strong>Double-Click Star:</strong> <em>Center on Star</em></li>
                 </ul>
 
-                <!-- SELECTION --------------------------------------------------->
                 <h4 class="mt-3 font-medium text-sm text-gray-400">SELECTION</h4>
                 <ul class="list-disc pl-5 text-xs">
                     <li><strong>LMB Click Ship:</strong> <em>Select Ship</em></li>
@@ -432,13 +576,11 @@
                     <li><strong>SHIFT + LMB Drag:</strong> <em>Area Select</em></li>
                 </ul>
 
-                <!-- COMMANDS ----------------------------------------------------->
                 <h4 class="mt-3 font-medium text-sm text-gray-400">COMMANDS</h4>
                 <ul class="list-disc pl-5 text-xs">
                     <li><strong>RMB Click Star (ships selected):</strong> <em>Move</em></li>
                 </ul>
 
-                <!-- GROUPS ------------------------------------------------------->
                 <h4 class="mt-3 font-medium text-sm text-gray-400">GROUPS</h4>
                 <ul class="list-disc pl-5 text-xs">
                     <li><strong>CTRL + [0-9]:</strong><em> Assign Group</em></li>
@@ -446,90 +588,93 @@
                     <li><strong>[0-9] (double-press):</strong> <em>Focus camera on group</em></li>
                     <li><strong>Click Group Button (in Fleets panel):</strong> <em>Focus camera on group</em></li>
                 </ul>
-                </div>
+            </div>
         </div>
     </div>
 
+    <!-- GAME UI CONTAINER -->
     <div id="uiContainer">
+        <!-- Resource Panel -->
         <div id="resourcePanel" class="infoPanel">
             <h3>Resources</h3>
             <span id="creditsDisplay">Credits: 0</span>
             <span id="mineralsDisplay">Minerals: 0</span>
         </div>
+
+        <!-- Planet Menu -->
         <div id="planetMenu" class="infoPanel">
             <h3 id="planetMenuTitle">Selected Star Menu</h3>
             <span id="planetOwner">Owner: -</span>
             <span id="planetPopulation">Population: 0 / 0</span>
+            
             <div id="populationProgressContainer" class="progressBarContainer" style="display: none;">
                 <div id="populationProgressBarFill" class="progressBarFill" style="width: 0%;"></div>
                 <span id="populationProgressBarText" class="progressBarText">0%</span>
             </div>
+            
             <div class="queueTitle mt-5">Planetary Queue</div>
             <span id="planetaryQueueInfo" class="queueInfo">Queue: 0</span>
-            <div id="planetaryQueueTotalProgressContainer"
-                class="progressBarContainer"
-                style="margin-top:4px;">
-            <div id="planetaryQueueTotalProgressFill"
-                class="progressBarFill"
-                style="width:0%; background-color:rgba(139,92,246,0.6)"></div>
-            <span id="planetaryQueueTotalProgressText"
-                    class="progressBarText">0%</span>
+            <div id="planetaryQueueTotalProgressContainer" class="progressBarContainer" style="margin-top:4px;">
+                <div id="planetaryQueueTotalProgressFill" class="progressBarFill" style="width:0%; background-color:rgba(139,92,246,0.6)"></div>
+                <span id="planetaryQueueTotalProgressText" class="progressBarText">0%</span>
             </div>
+            
             <div id="planetaryConstructionProgressContainer" style="display: none; margin-top: 5px;"> 
                 <span id="planetaryConstructingItemType" class="progressLabel"></span>
             </div>
+            
             <span id="planetInfraLevel" class="mt-3">Infrastructure Level: 1</span>
             <button id="upgradeInfrastructureButton" data-cost-credits="200" data-cost-minerals="150" data-build-time="30">
                 <span>Upgrade Infrastructure</span>
                 <div class="button-progress-bar" id="progress-Infrastructure"></div> 
             </button> 
+            
             <span id="planetMines" class="mt-3">Mines: 0 / 0</span>
-             <button id="buildMineButton" data-cost-credits="75" data-cost-minerals="25" data-build-time="10">
+            <button id="buildMineButton" data-cost-credits="75" data-cost-minerals="25" data-build-time="10">
                 <span>Build Mine (75C, 25M)</span>
-                 <div class="button-progress-bar" id="progress-Mine"></div>
+                <div class="button-progress-bar" id="progress-Mine"></div>
             </button>
+            
             <span id="planetDefense" class="mt-3">Defense: 0 / 0</span> 
-             <button id="buildDefenseButton" data-cost-credits="100" data-cost-minerals="50" data-build-time="15">
+            <button id="buildDefenseButton" data-cost-credits="100" data-cost-minerals="50" data-build-time="15">
                 <span>Upgrade Defense (100C, 50M)</span>
-                 <div class="button-progress-bar" id="progress-Defense"></div>
+                <div class="button-progress-bar" id="progress-Defense"></div>
             </button>
+            
             <span id="planetShipyardLevel" class="mt-3">Shipyard Level: 0</span>
-             <button id="buildShipyardButton" data-cost-credits="150" data-cost-minerals="100" data-build-time="20">
+            <button id="buildShipyardButton" data-cost-credits="150" data-cost-minerals="100" data-build-time="20">
                 <span>Build Shipyard (150C, 100M)</span>
-                 <div class="button-progress-bar" id="progress-Shipyard"></div>
+                <div class="button-progress-bar" id="progress-Shipyard"></div>
             </button>
             <button id="upgradeShipyardButton" data-cost-credits="250" data-cost-minerals="200" data-build-time="40">
                 <span>Upgrade Shipyard</span>
-                 <div class="button-progress-bar" id="progress-UpgradeShipyard"></div>
+                <div class="button-progress-bar" id="progress-UpgradeShipyard"></div>
             </button> 
 
             <div class="queueTitle mt-5">Ship Queue</div>
             <span id="shipQueueInfo" class="queueInfo">Queue: 0</span>
-            <div id="shipQueueTotalProgressContainer"
-                class="progressBarContainer"
-                style="margin-top:4px;">
-            <div id="shipQueueTotalProgressFill"
-                class="progressBarFill"
-                style="width:0%; background-color:rgba(59,130,246,0.6)"></div>
-            <span id="shipQueueTotalProgressText"
-                    class="progressBarText">0%</span>
+            <div id="shipQueueTotalProgressContainer" class="progressBarContainer" style="margin-top:4px;">
+                <div id="shipQueueTotalProgressFill" class="progressBarFill" style="width:0%; background-color:rgba(59,130,246,0.6)"></div>
+                <span id="shipQueueTotalProgressText" class="progressBarText">0%</span>
             </div>
-             <button id="buildFighterButton" data-type="Fighter">
+            
+            <button id="buildFighterButton" data-type="Fighter">
                 <span>Build Fighter</span>
                 <div class="button-progress-bar" id="progress-Fighter"></div>
             </button>
             <button id="buildDestroyerButton" data-type="Destroyer">
                 <span>Build Destroyer</span>
-                 <div class="button-progress-bar" id="progress-Destroyer"></div>
+                <div class="button-progress-bar" id="progress-Destroyer"></div>
             </button> 
             <button id="buildCruiserButton" data-type="Cruiser">
                 <span>Build Cruiser</span>
-                 <div class="button-progress-bar" id="progress-Cruiser"></div>
+                <div class="button-progress-bar" id="progress-Cruiser"></div>
             </button> 
             <button id="buildSlipstreamFrigateButton" data-type="Slipstream Frigate">
                 <span>Build Slipstream Frigate</span>
                 <div class="button-progress-bar" id="progress-SlipstreamFrigate"></div>
             </button>
+            
             <div id="shipConstructionProgressContainer" style="display: none; margin-top: 5px;">
                 <span id="shipConstructingItemType" class="progressLabel"></span>
             </div>
@@ -542,41 +687,45 @@
         </div>
     </div>
 
-    <!---- GAME-SPEED PANEL -->
-    <div id="speedPanel" class="fixed top-2 right-3 z-50 flex gap-1 pointer-events-auto">
+    <!-- SPEED PANEL -->
+    <div id="speedPanel">
         <button data-speed="pause">⏸</button>
-        <button data-speed="1">1×</button>
+        <button data-speed="1" class="active">1×</button>
         <button data-speed="2">2×</button>
         <button data-speed="5">5×</button>
         <button data-speed="10">10×</button>
     </div>
 
+    <!-- SELECTION & OTHER UI -->
     <div id="selectedUnitsPanel">Selected Units: 0</div>
     <div id="selectionBox"></div>
 
-    <!-- ==== CONTROL GROUP PANEL ==== -->
+    <!-- CONTROL GROUPS PANEL -->
     <div id="groupsPanel" class="groups-panel" style="display:none;">
-        <span class="groups-title">Fleets </span>
+        <span class="groups-title">Fleets</span>
         <div id="groupsButtonsContainer" class="groups-buttons"></div>
         <span></span>
-        <span class="groups-title">Focus Camera: Click button or double-press number </span>
+        <span class="groups-title">Focus Camera: Click button or double-press number</span>
         <span></span>
     </div>
 
-  <!-- ====== Three + addon importmap ====== -->
-  <script type="importmap">
-  {
-    "imports": {
-      "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
-      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/"
+    <!-- GAME CANVAS -->
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- TOOLTIP -->
+    <div id="custom-tooltip" style="display: none;"></div>
+
+    <!-- THREE.JS IMPORTMAP -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.165.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.165.0/examples/jsm/"
+        }
     }
-  }
-  </script>
+    </script>
 
-  <!-- Tooltip -->
-  <div id="custom-tooltip" style="display:none;"></div>
-
-  <!-- Oma peliklientti -->
-  <script type="module" src="js/client.js"></script>
+    <!-- MAIN CLIENT SCRIPT -->
+    <script type="module" src="js/client.js"></script>
 </body>
 </html>

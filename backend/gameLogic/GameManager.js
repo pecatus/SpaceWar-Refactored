@@ -100,18 +100,23 @@ class GameManager extends EventEmitter {
     }
     await Player.insertMany(players);
 
-    /* 3) Tähdet (satunnais­generaattori – vain demoa varten) */
+    /* 3) Tähdet (ensimmäiset pelaajille, loput neutraleiksi) */
     const stars = [];
-    const playerCycle = [...players.map(p => p._id), null]; // viimeinen = neutral
 
     for (let i = 0; i < starCount; i++) {
-        const ownerSlot   = playerCycle[i % playerCycle.length];  // 0..N..null
-        const isHomeworld = ownerSlot && i < players.length;      // eka kierros = kotitähti
+        let ownerId = null;
+        let isHomeworld = false;
+        
+        // Ensimmäiset tähdet menee pelaajille (yksi per pelaaja)
+        if (i < players.length) {
+            ownerId = players[i]._id;
+            isHomeworld = true;
+        }
+        // Kaikki muut ovat neutraleja
 
-        /* Kotiplaneettoihin heti telakka + kaivos */
         const starData = {
           gameId  : this.gameId,
-          ownerId : ownerSlot,                      // null → neutral
+          ownerId : ownerId,                        // null → neutral
           name    : `Star ${i + 1}`,
           isHomeworld,
           position: { x: Math.random()*1000, y: Math.random()*1000, z: 0 },
@@ -120,7 +125,7 @@ class GameManager extends EventEmitter {
           /* --- start-bonukset vain homeworldille --- */
           mines         : isHomeworld ? 1 : 0,
           shipyardLevel : isHomeworld ? 1 : 0,
-          population    : isHomeworld ? 5 : 0      // valinnainen: 3 pop heti
+          population    : isHomeworld ? 5 : 1       // homeworld 5, muut 1
         };
 
         stars.push(new Star(starData));
@@ -184,40 +189,49 @@ class GameManager extends EventEmitter {
     this.interval = null;
   }
 
-  async _tick() {
-    this._turn = (this._turn ?? 0) + 1;      // debug-laskuri
+async _tick() {  // LISÄÄ async TÄHÄN!
+    this._turn = (this._turn ?? 0) + 1;
 
     this._advanceEconomy();
 
     const diff = [];
-    this._advanceConstruction(diff);         // <──  ⇦  UUSI
+    this._advanceConstruction(diff);
 
-    /* ---- 1) Lasketaan kunkin AI:n tulot tästä 1 s tikistä -------------- */
+    // ... AI logic ...
+    
     const aiActions = [];
     this.ai.forEach((ai, aiId) => {
-      const wallet = this.state.resources[aiId];
-      const income = {
-        credits  : wallet.credits  - ai.prevRes.credits,
-        minerals : wallet.minerals - ai.prevRes.minerals
-      };
+        const wallet = this.state.resources[aiId];
+        const income = {
+            credits  : wallet.credits  - ai.prevRes.credits,
+            minerals : wallet.minerals - ai.prevRes.minerals
+        };
 
-      /*  -- DEBUG: näytä paljonko tuli rahaa tähän tikkiin -- */
-      console.log(`[AI-INCOME] turn=${this._turn ?? 0}  ${aiId.slice(-4)}  +${income.credits}/${income.minerals}`);
+        console.log(`[AI-INCOME] turn=${this._turn ?? 0}  ${aiId.slice(-4)}  +${income.credits}/${income.minerals}`);
 
-      aiActions.push(...ai.runTurn(this._turn ?? 0, income));
+        aiActions.push(...ai.runTurn(this._turn ?? 0, income));
     });
 
-    await this._applyActions(aiActions);
-    diff.push(...aiActions);                 // diffin jatkoksi
+    await this._applyActions(aiActions);  // Tämä rivi vaatii async:in
+    diff.push(...aiActions);
+
+    // LISÄÄ progress-päivitykset
+    this.state.stars.forEach(star => {
+        if (star.planetaryQueue?.length > 0 || star.shipQueue?.length > 0) {
+            diff.push({
+                action: 'CONSTRUCTION_PROGRESS',
+                starId: star._id,
+                planetaryQueue: star.planetaryQueue,
+                shipQueue: star.shipQueue
+            });
+        }
+    });
 
     await this._flush(diff);
-  }
+}
 
 
-  /* -------------------------------------------------- */
-/*  Rakennusten & laivojen valmistuminen              */
-/* -------------------------------------------------- */
-_advanceConstruction(diff) {
+ _advanceConstruction(diff) {
   /* PLANETARY ------------------------------------------------ */
   this.state.stars.forEach(star => {
     if (!star.planetaryQueue?.length) return;
@@ -243,42 +257,95 @@ _advanceConstruction(diff) {
 
       // 2. Poista jonosta ja tallenna
       star.planetaryQueue.shift();
-      star.markModified('planetaryQueue');  // varmistaa Mongoose-savennuksen
+      star.markModified('planetaryQueue');
+      // Nollaa total time jos queue tyhjeni
+      if (star.planetaryQueue.length === 0) {
+        star.planetaryQueueTotalTime = 0;
+      }
+
+      // LISÄÄ TÄMÄ - Nollaa total time jos queue tyhjeni
+      if (star.planetaryQueue.length === 0) {
+        star.planetaryQueueTotalTime = 0;
+      }
 
       diff.push({
-        action : 'COMPLETE_PLANETARY',
-        starId : star._id,
-        type   : job.type
+          action : 'COMPLETE_PLANETARY',
+          starId : star._id,
+          type   : job.type,
+          // Lisää päivitetty star data
+          starData: {
+              _id: star._id,
+              mines: star.mines,
+              defenseLevel: star.defenseLevel,
+              shipyardLevel: star.shipyardLevel,
+              infrastructureLevel: star.infrastructureLevel,
+              planetaryQueue: star.planetaryQueue,
+              shipQueue: star.shipQueue,
+              planetaryQueueTotalTime: star.planetaryQueueTotalTime, // LISÄÄ TÄMÄ
+              shipQueueTotalTime: star.shipQueueTotalTime // JA TÄMÄ
+          }
       });
     }
   });
 
   /* SHIPS ---------------------------------------------------- */
   this.state.stars.forEach(star => {
-    if (!star.shipQueue?.length) return;
+      if (!star.shipQueue?.length) return;
 
-    const job = star.shipQueue[0];
-    job.timeLeft -= 1;
+      const job = star.shipQueue[0];
+      job.timeLeft -= 1;
 
-    if (job.timeLeft <= 0) {
-      // Luo varsinainen Ship-doc
-      this.state.ships.push(new Ship({
-        gameId      : this.gameId,
-        ownerId     : star.ownerId,
-        type        : job.type,
-        state       : 'orbiting',
-        parentStarId: star._id
-      }));
+      if (job.timeLeft <= 0) {
+        // Määritä HP typen mukaan
+        const shipStats = {
+            'Fighter': { hp: 1, maxHp: 1 },
+            'Destroyer': { hp: 2, maxHp: 2 },
+            'Cruiser': { hp: 3, maxHp: 3 },
+            'Slipstream Frigate': { hp: 1, maxHp: 1 }
+        };
 
-      star.shipQueue.shift();
-      star.markModified('shipQueue');
+        const stats = shipStats[job.type] || { hp: 1, maxHp: 1 };
 
-      diff.push({
-        action : 'SHIP_SPAWNED',
-        starId : star._id,
-        type   : job.type
-      });
-    }
+        // Luo varsinainen Ship-doc
+        const newShip = new Ship({
+            gameId      : this.gameId,
+            ownerId     : star.ownerId,
+            type        : job.type,
+            state       : 'orbiting',
+            parentStarId: star._id,
+            hp          : stats.hp,
+            maxHp       : stats.maxHp
+        });
+
+        console.log(`Created new ship: ID=${newShip._id}, type=${job.type}, owner=${star.ownerId}, hp=${stats.hp}/${stats.maxHp}`);
+
+        this.state.ships.push(newShip);
+
+        star.shipQueue.shift();
+        star.markModified('shipQueue');
+        // Nollaa total time jos queue tyhjeni
+        if (star.shipQueue.length === 0) {
+          star.shipQueueTotalTime = 0;
+        }
+
+        // LISÄÄ TÄMÄ - Nollaa total time jos queue tyhjeni
+        if (star.shipQueue.length === 0) {
+          star.shipQueueTotalTime = 0;
+        }
+
+        diff.push({
+            action : 'SHIP_SPAWNED',
+            starId : star._id,
+            type   : job.type,
+            ownerId: star.ownerId,
+            shipId : newShip._id.toString(),
+            // Lisää queue tiedot total queuen nollaamiseksi
+            starData: {
+              shipQueue: star.shipQueue,
+              shipQueueTotalTime: star.shipQueueTotalTime
+                }
+        });
+      }
   });
 }
 
@@ -371,15 +438,38 @@ async _applyActions(actions) {
 
     /* --------- MOVEMENT ---------- */
     if (act.action === "MOVE_SHIP") {
-      const sh = this._ship(act.shipId);
-
-      // Ship-skeeman kentät ovat jo optionaleja → ei validation-riskiä
-      sh.state        = "moving";
-      sh.targetStarId = act.toStarId;
-      sh.parentStarId = act.fromStarId ?? sh.parentStarId;
-
-      await sh.save();
-      continue;
+        console.log(`Processing MOVE_SHIP: ${act.shipId} -> ${act.toStarId}`);
+        
+        const sh = this._ship(act.shipId);
+        if (!sh) {
+            console.warn(`Ship ${act.shipId} not found in ships:`, this.state.ships.map(s => s._id));
+            continue;
+        }
+        
+        console.log(`Found ship, current state: ${sh.state}, parentStar: ${sh.parentStarId}`);
+        
+        // Ship-skeeman kentät ovat jo optionaleja → ei validation-riskiä  
+        sh.state        = "moving";
+        sh.targetStarId = act.toStarId;
+        sh.parentStarId = act.fromStarId ?? sh.parentStarId;
+        
+        await sh.save();
+        console.log(`Ship saved with new state: moving`);
+        
+        // Lähetä diff takaisin clientille!
+        const diff = {
+            action: 'SHIP_MOVING',
+            shipId: act.shipId,
+            fromStarId: sh.parentStarId,
+            toStarId: act.toStarId,
+            state: 'moving'
+        };
+        
+        // Lähetä heti
+        this.io.to(this.gameId.toString()).emit("game_diff", [diff]);
+        console.log(`Sent SHIP_MOVING diff`);
+        
+        continue;
     }
   }
 }
@@ -395,14 +485,31 @@ async _applyActions(actions) {
   _humanId(players) { return (players || []).find(p => !p.isAI)?._id?.toString() ?? ""; }
   _star(id) { return this.state.stars.find(s => s._id.toString() === id.toString()); }
   _ship(id) { return this.state.ships.find(s => s._id.toString() === id.toString()); }
-    /** Palauttaa serialisoitavan snapshotin koko pelitilasta. */
-  getSerializableState () {
+
+  /** Palauttaa serialisoitavan snapshotin koko pelitilasta. */
+  async getSerializableState() {
     const stars = this.state.stars.map(s => s.toObject({ depopulate: true }));
     const ships = this.state.ships.map(s => s.toObject({ depopulate: true }));
+    
+    // Hae pelaajatiedot, jotta client voi määrittää värit
+    const players = await Player.find({ gameId: this.gameId }).exec();
+    const playersData = players.map(p => ({
+      _id: p._id.toString(),
+      name: p.name,
+      color: p.color,
+      isAI: p.isAI
+    }));
+    
+    // Etsi human player ID
+    const humanPlayer = players.find(p => !p.isAI);
+    const humanPlayerId = humanPlayer ? humanPlayer._id.toString() : null;
+    
     return {
       stars,
       ships,
-      resources: this.state.resources
+      resources: this.state.resources,
+      players: playersData,
+      humanPlayerId: humanPlayerId
     };
   }
 }
