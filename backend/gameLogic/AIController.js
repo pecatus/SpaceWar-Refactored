@@ -177,6 +177,14 @@ class AIController {
     acts.push(...this._defend(myStars));
     acts.push(...this._expand(myStars));
 
+    this.prevRes.credits = this.res.credits;
+    this.prevRes.minerals = this.res.minerals;
+
+    // Lisätään jokaiseen actioniin lähettäjän ID
+    acts.forEach(act => {
+        act.playerId = this.aiId;
+    });
+
     return acts;
   }
 

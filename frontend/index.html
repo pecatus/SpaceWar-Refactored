@@ -462,6 +462,16 @@
         #custom-tooltip.visible {
             opacity: 1;
         }
+
+        /* Pause-tila tyyli napeille */
+        body.paused #planetMenu button {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        body.paused #planetMenu button:hover {
+            background-color: #374151; /* Ei hover-efektiä */
+        }
     </style>
 </head>
 

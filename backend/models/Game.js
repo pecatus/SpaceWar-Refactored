@@ -17,7 +17,8 @@ const GameSettingsSchema = new mongoose.Schema({
   aiCount   : { type: Number, required: true },     // 0-4
   mapSeed   : { type: Number, required: true },     // RNG seed → deterministic maps
   speed     : { type: Number, default: 1 },         // 1×, 2× … used for tick rate
-  lobbyHost : { type: String, required: true }      // socket id / auth id of host
+  lobbyHost : { type: String, required: true },      // socket id / auth id of host
+  playerId  : { type: String, default: null }
 }, { _id: false });
 
 /*
