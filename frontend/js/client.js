@@ -410,22 +410,13 @@ function resetClientState() {
 
 async function handleStartGame() {
     try {
-        // 1. Tallenna vanhan pelin ID, jos sellainen on
-        const oldGameId = currentGameId;
-
-        // 2. Siivoa clientin tila täysin puhtaaksi
+        // 1. Siivoa aina vanha clientin tila pois.
         resetClientState();
-        
-        // 3. JOS olimme vanhassa pelissä, käske serveriä poistamaan socket siitä huoneesta
-        if (oldGameId) {
-            socket.emit('leave_game', { gameId: oldGameId });
-            console.log(`[SOCKET] Pyydetty poistumaan vanhasta pelihuoneesta: ${oldGameId}`);
-        }
 
         startGameButton.disabled = true;
         startGameButton.querySelector('span').textContent = 'Starting...';
         
-        // 4. Kerää uuden pelin asetukset (kuten ennenkin)
+        // 2. Kerää pelin asetukset (kuten ennenkin).
         const numAIPlayers = parseInt(numAiPlayersSelect.value);
         const colorPickers = document.querySelectorAll('.ai-color-picker');
         const aiColors = [];
@@ -443,21 +434,25 @@ async function handleStartGame() {
             speed: 1
         };
         
-        // 5. Luo uusi peli serverillä (kuten ennenkin)
+        // 3. Luo uusi peli JA SAA KOKO ALKUTILA SUORAAN HTTP-VASTAUKSENA.
         const result = await createNewGame(gameConfig);
         
-        if (!result.success) {
-            throw new Error(result.message || "Failed to create game");
+        if (!result.success || !result.initialState) {
+            throw new Error(result.message || "Failed to create game or receive initial state");
         }
         
-        // 6. Liity uuteen peliin
-        currentGameId = result.gameId;
-        console.log(`[SOCKET] Liitytään uuteen peliin: ${currentGameId}`);
-        socket.emit("join_game", { gameId: currentGameId });
+        // 4. Käsittele saatu alkutila VÄLITTÖMÄSTI.
+        // Tämä rakentaa 3D-maailman ja alustaa clientin datan.
+        handleInitialState(result.initialState);
+        
+        // 5. VASTA NYT, kun client on valmis, liity socket-huoneeseen ja
+        // kerro serverille, että se voi käynnistää pelin.
+        socket.emit("join_game", { gameId: result.initialState.gameId });
         
     } catch (error) {
         console.error("❌ Failed to start game:", error);
         alert("Failed to start game: " + error.message);
+        // Varmistetaan, että nappeja voi taas käyttää, jos käynnistys epäonnistui
         startGameButton.disabled = false;
         startGameButton.querySelector('span').textContent = 'Start Game';
     }
@@ -482,7 +477,7 @@ async function createNewGame(payload) {
 
 function handleInitialState(snap) {
     console.log("🎯 Handling initial state:", snap);
-    
+    currentGameId = snap.gameId;
     gameState = snap;
     gameInProgress = true;
     
@@ -1150,6 +1145,7 @@ function sendConstructionCommand(starId, buildingType, cost) {
     const command = {
         action: 'QUEUE_PLANETARY',
         playerId: myPlayerId,
+        gameId: currentGameId,
         starId: starId,
         build: {
             type: buildingType,
@@ -1193,6 +1189,7 @@ function sendShipConstructionCommand(starId, shipType, cost) {
     const command = {
         action: 'QUEUE_SHIP',
         playerId: myPlayerId,
+        gameId: currentGameId,
         starId: starId,
         build: {
             type: shipType,

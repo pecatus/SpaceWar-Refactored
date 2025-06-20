@@ -115,34 +115,33 @@ io.on("connection", socket => {
   // --- PÄIVITETTY JOIN_GAME-KÄSITTELIJÄ ---
   socket.on("join_game", async ({ gameId }) => {
     try {
-      if (!mongoose.Types.ObjectId.isValid(gameId)) throw new Error("invalid gameId");
+      if (!mongoose.Types.ObjectId.isValid(gameId)) {
+        throw new Error("Invalid gameId provided to join_game.");
+      }
 
-      let gm = managers.get(gameId);
+      const gm = managers.get(gameId);
+
+      // Jos jostain syystä pelimanageria ei löydy, lähetä virhe.
+      // (Tämän ei pitäisi enää tapahtua uudessa logiikassa).
       if (!gm) {
-        // Tässä voitaisiin ladata peli DB:stä, mutta uuden pelin luonti hoitaa sen
-        const gameDoc = await Game.findById(gameId);
-        if (!gameDoc || gameDoc.status !== 'playing') {
-          throw new Error("Game not found or has ended.");
-        }
-        gm = new GameManager({ gameId, io });
-        await gm.init();
-        managers.set(gameId, gm);
+        throw new Error("Game manager not found. Cannot join.");
       }
       
+      // 1. Liitä socket pelihuoneeseen, jotta se vastaanottaa tulevat päivitykset.
       socket.join(gameId);
-      
-      // Jatka peliä, jos se oli paussilla
-      if (gm.isPaused()) {
-        console.log(`▶️ Resuming game ${gameId} after player rejoined.`);
-        gm.resume();
-      } else if (!gm.isRunning()) {
+      console.log(`👥  Socket ${socket.id} successfully joined room ${gameId}`);
+
+      // 2. TÄSSÄ ON SE KRIITTINEN "VARMISTUS":
+      // Käynnistä pelin serveri-side-looppi, JOS se ei ole jo käynnissä.
+      if (!gm.isRunning() && !gm.isPaused()) {
+        console.log(`🚀 Starting game ${gameId} tick loop as player has joined.`);
         gm.start();
       }
-      
-      const state = await gm.getSerializableState();
-      io.to(socket.id).emit("initial_state", state);
+
+      // 3. Vahvista clientille, että liittyminen huoneeseen onnistui.
+      // HUOM: Emme enää lähetä `initial_state`-dataa tästä, koska client sai sen jo
+      // aiemmin HTTP-vastauksessa.
       socket.emit("joined", { success: true });
-      console.log(`👥  ${socket.id} joined game ${gameId}`);
 
     } catch (err) {
       console.error(`❌ Error during join_game:`, err.message);
@@ -156,9 +155,7 @@ io.on("connection", socket => {
       console.log("🎮 Player command received:", command);
       
       // Find which game this socket belongs to
-      const gameId = Array.from(socket.rooms).find(room => 
-        room !== socket.id && managers.has(room)
-      );
+      const gameId = command.gameId; 
       
       if (!gameId) {
         console.error("❌ No active game found for socket", socket.id);
@@ -249,18 +246,20 @@ app.post("/api/games/new", async (req, res) => {
     }
     // --- SIIVOUS PÄÄTTYY ---
 
-    /* Luo ja käynnistä uusi peli (tämä osa on kuten ennenkin) */
-    console.log(`✨ Creating new game for player ${playerId.slice(-6)}.`);
+    /* Luo ja käynnistä uusi peli  */
+    console.log(`✨ Creating new game for player ${req.sessionID.slice(-6)}.`);
     const gm = new GameManager({ io });
-    const gameConfig = {
-      ...req.body,
-      playerId: playerId // Tallenna session ID uuteen peliin
-    };
-    const out = await gm.createWorld(gameConfig);
-    gm.start();
-    managers.set(out.gameId.toString(), gm);
+    const gameConfig = { /* ... */ };
 
-    res.status(201).json(out);
+    // createWorld palauttaa nyt { success: true, initialState: { ... } }
+    const result = await gm.createWorld(gameConfig);
+    const newGameId = result.initialState.gameId; // Otetaan gameId talteen initialStatesta
+
+    // Peli ei käynnisty vielä, vaan vasta kun pelaaja liittyy
+    managers.set(newGameId.toString(), gm);
+
+    // LÄHETETÄÄN KOKO ALKUTILA VASTAUKSENA
+    res.status(201).json(result);
   } catch (err) {
     console.error("❌ Error in /api/games/new:", err);
     res.status(500).json({ success: false, error: err.message });

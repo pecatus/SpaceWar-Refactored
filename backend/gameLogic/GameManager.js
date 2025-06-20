@@ -158,7 +158,11 @@ class GameManager extends EventEmitter {
           /* --- start-bonukset vain homeworldille --- */
           mines         : isHomeworld ? 1 : 0,
           shipyardLevel : isHomeworld ? 1 : 0,
-          population    : isHomeworld ? 5 : 1       // homeworld 5, muut 1
+          population    : isHomeworld ? 5 : 1,       // homeworld 5, muut 1
+          planetaryQueue        : [],
+          shipQueue             : [],
+          planetaryQueueTotalTime: 0,
+          shipQueueTotalTime    : 0
         };
 
         stars.push(new Star(starData));
@@ -170,9 +174,10 @@ class GameManager extends EventEmitter {
 
     /* 5) Lataa muistiin ja starttaa */
     await this.init();
-    this.start();
+    //Palautetaan koko alkutila, ei vain gameId:tä
+    const initialState = await this.getSerializableState();
 
-    return { success: true, gameId: this.gameId };
+    return { success: true, initialState };
   }
 
   /* ======================================================================= */
@@ -186,25 +191,43 @@ class GameManager extends EventEmitter {
     this.gameDoc = await Game.findById(this.gameId).exec();
     if (!this.gameDoc) throw new Error(`Game ${this.gameId} not found`);
 
-    /* Nopea populointi */
+    // Ladataan uuden pelin tiedot tietokannasta
     this.state.stars = await Star.find({ gameId: this.gameId }).exec();
     this.state.ships = await Ship.find({ gameId: this.gameId }).exec();
-    const players    = await Player.find({ gameId: this.gameId }).exec();
+    const players = await Player.find({ gameId: this.gameId }).exec();
 
-    /* Resource-pankki (tässä versiossa staattiset aloitusarvot) */
+    // --- UUSI, YKSINKERTAINEN JA LUOTETTAVA RESURSSIEN ALUSTUS ---
+    // Tyhjennetään ensin vanhat resurssit varmuuden vuoksi.
+    this.state.resources = {};
+
+    // Käydään uuden pelin pelaajat läpi ja annetaan KAIKILLE aloitusraha.
     players.forEach(p => {
       this.state.resources[p._id] = {
-        credits  : p.resources?.credits  ?? 1000,
-        minerals : p.resources?.minerals ?? 500
+        credits: 1000,
+        minerals: 500
       };
     });
+    console.log('--- Correctly initialized resources for new game ---', JSON.stringify(this.state.resources, null, 2));
+ 
 
-    /* AI-instanssit */
-    const config = { infraLimits: INFRA_LIMITS, playerId: this._humanId(players), speeds: SHIP_SPEEDS };
+    // AI-instanssien luonti - Varmistetaan, että tämä koskee vain AI-pelaajia
+    this.ai.clear(); // Tyhjennetään vanhat AI:t varmuuden vuoksi
+    const humanPlayerId = this._humanId(players);
+    const config = { infraLimits: INFRA_LIMITS, playerId: humanPlayerId, speeds: SHIP_SPEEDS };
+    
     players.forEach(p => {
-      if (p.isAI) {
-        const view = { resources: this.state.resources[p._id], stars: this.state.stars, ships: this.state.ships };
-        this.ai.set(p._id.toString(), new AIController(p._id.toString(), view, config));
+      if (p.isAI) { // Luodaan controller VAIN jos p.isAI on totta
+        const aiId = p._id.toString();
+        const aiWallet = this.state.resources[aiId];
+        
+        if (aiWallet) {
+          const view = { 
+            resources: aiWallet, 
+            stars: this.state.stars, 
+            ships: this.state.ships 
+          };
+          this.ai.set(aiId, new AIController(aiId, view, config));
+        }
       }
     });
   }
@@ -287,11 +310,14 @@ async _tick() {
     
     const aiActions = [];
     this.ai.forEach((ai, aiId) => {
-        const wallet = this.state.resources[aiId];
+      
+    const wallet = this.state.resources[aiId];
+      if (!wallet || !ai.prevRes) return; // Jos lompakkoa ei ole, skipataan
+
         const income = {
-            credits  : wallet.credits  - ai.prevRes.credits,
-            minerals : wallet.minerals - ai.prevRes.minerals
-        };
+          credits : wallet.credits - ai.prevRes.credits,
+          minerals : wallet.minerals - ai.prevRes.minerals
+          };
 
         console.log(`[AI-INCOME] turn=${this._turn ?? 0}  ${aiId.slice(-4)}  +${income.credits}/${income.minerals}`);
 
@@ -530,6 +556,11 @@ async _applyActions(actions) {
     if (act.action === "QUEUE_PLANETARY") {
       // Tarkistetaan, onko komennolla hintaa ja lähettäjää (eli onko se ihmispelaajan komento)
       if (act.cost && act.playerId) {
+        console.log('--- DEBUG: Checking wallet state before payment ---');
+        console.log('Entire resource state:', JSON.stringify(this.state.resources, null, 2));
+        console.log('Checking for player ID:', act.playerId);
+        console.log('Wallet found:', this.state.resources[act.playerId]);
+        console.log('----------------------------------------------------');
         const playerWallet = this.state.resources[act.playerId];
         // Varmistetaan serverillä, että pelaajalla on varmasti varaa
         if (playerWallet && playerWallet.credits >= act.cost.credits && playerWallet.minerals >= act.cost.minerals) {
@@ -545,14 +576,15 @@ async _applyActions(actions) {
 
       const st = this._star(act.starId);
       if (st) {
-        // Ensin lisätään jonoon...
+        st.planetaryQueue = st.planetaryQueue || [];
+        st.shipQueue      = st.shipQueue      || [];
+
         st.planetaryQueue.push({
           id:        uuidv4(),
           type:      act.build.type,
           timeLeft:  act.build.time,
           totalTime: act.build.time
         });
-        // ...ja VASTA SITTEN tallennetaan.
         await st.save();
       }
       continue;
@@ -562,6 +594,11 @@ async _applyActions(actions) {
     if (act.action === "QUEUE_SHIP") {
       // Käytetään TÄSMÄLLEEN SAMAA LOGIIKKAA kuin planeetoille
       if (act.cost && act.playerId) {
+        console.log('--- DEBUG: Checking wallet state before payment ---');
+        console.log('Entire resource state:', JSON.stringify(this.state.resources, null, 2));
+        console.log('Checking for player ID:', act.playerId);
+        console.log('Wallet found:', this.state.resources[act.playerId]);
+        console.log('----------------------------------------------------');
         const playerWallet = this.state.resources[act.playerId];
         if (playerWallet && playerWallet.credits >= act.cost.credits && playerWallet.minerals >= act.cost.minerals) {
           playerWallet.credits -= act.cost.credits;
@@ -575,14 +612,15 @@ async _applyActions(actions) {
 
       const st = this._star(act.starId);
       if (st) {
-        // Ensin lisätään jonoon...
+        st.shipQueue      = st.shipQueue      || [];
+        st.planetaryQueue = st.planetaryQueue || [];
+
         st.shipQueue.push({
           id:        uuidv4(),
           type:      act.build.type,
           timeLeft:  act.build.time,
           totalTime: act.build.time
         });
-        // ...ja sitten tallennetaan.
         await st.save();
       }
       continue;
@@ -862,6 +900,7 @@ _advanceConquest(diff) {
     const humanPlayerId = humanPlayer ? humanPlayer._id.toString() : null;
     
     return {
+      gameId: this.gameId ? this.gameId.toString() : null,
       stars,
       ships,
       resources: this.state.resources,
