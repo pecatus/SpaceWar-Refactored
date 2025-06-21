@@ -46,8 +46,10 @@ class GameManager extends EventEmitter {
     this.state = { resources: {}, stars: [], ships: [] };
 
     this.ai        = new Map();   // Map<playerId, AIController>
-    this.interval  = null;        // setInterval-kahva
+
     this.gameDoc   = null;        // täyttyy init()/createWorld():ssa
+    this._running = false;
+    this.timeoutId = null;
 
     this._paused = false;         // Jos pause taikka ei
     this._speed = 1;              // oletusnopeus 1
@@ -60,20 +62,13 @@ class GameManager extends EventEmitter {
 
   // Onko pausella tahika ei
     isRunning() {
-      return this.interval !== null && !this._paused;
+      return this._running && !this._paused;
   }
 
   // Nopeudensäädin
   setSpeed(speed) {
     if (this._speed === speed) return;
-    
     this._speed = speed;
-    
-    // Jos peli on käynnissä, käynnistä uudelleen uudella nopeudella
-    if (this.interval && !this._paused) {
-        this.stop();
-        this.start();
-    }
   }
 
   // nopeudensäädin -> tick
@@ -237,36 +232,40 @@ class GameManager extends EventEmitter {
   /* ======================================================================= */
 
     start() {
-        if (this.interval || this._paused) return;
-        const tickMs = this.getTickInterval();
-        this.interval = setInterval(() => this._tick(), tickMs);
-        console.log(`🎮 Game ${this.gameId} started at ${this._speed}x speed (${tickMs}ms ticks)`);
+      if (this._running) return;
+      this._paused = false;
+      this._running = true; // LISÄYS: Merkitään looppi aktiiviseksi.
+      console.log(`🎮 Game ${this.gameId} starting at ${this._speed}x speed.`);
+      this._loop();
     }
-    
+
     stop() {
-        if (this.interval) {
-            clearInterval(this.interval);
-            this.interval = null;
-        }
-        this._paused = false;
-        console.log(`🛑 Game ${this.gameId} stopped`);
+      this._running = false; // KRIITTINEN LISÄYS! Estää kesken olevaa looppia ajastamasta uutta.
+      if (this.timeoutId) {
+        clearTimeout(this.timeoutId);
+        this.timeoutId = null;
+      }
+      this._paused = false;
+      console.log(`🛑 Game ${this.gameId} stopped.`);
     }
     
     async pause() {
-        if (this.interval) {
-            clearInterval(this.interval);
-            this.interval = null;
-        }
-        this._paused = true;
-        await this._saveGameState(); // Tallenna tila tietokantaan
-        console.log(`⏸️ Game ${this.gameId} paused`);
+      console.log(`⏸️ Pausing game ${this.gameId}.`);
+      this._paused = true; // Tämä signaali estää KESKEN OLEVAA looppia ajastamasta uutta kierrosta
+      
+      // Tämä pysäyttää SEURAAVAKSI ajastetun kierroksen
+      if (this.timeoutId) {
+        clearTimeout(this.timeoutId);
+        this.timeoutId = null;
+      }
+      await this._saveGameState();
     }
     
     resume() {
-        if (!this._paused) return;
-        this._paused = false;
-        this.start();
-        console.log(`▶️ Game ${this.gameId} resumed`);
+      if (!this._paused || !this._running) return;
+      this._paused = false;
+      console.log(`▶️ Game ${this.gameId} resumed.`);
+      this._loop(); // Käynnistetään looppi uudelleen.
     }
     
     isPaused() {
@@ -295,39 +294,63 @@ class GameManager extends EventEmitter {
         }
     }
 
-async _tick() {  
+  /**
+   * Tarkistaa onko huoneessa pelaajia. Jos ei, pysäyttää pelin.
+   */
+  async _checkForPlayers() {
+    if (!this.io || !this.gameId) return;
+    
+    // Hae kaikki socketit pelihuoneesta
+    const sockets = await this.io.in(this.gameId.toString()).fetchSockets();
+    
+    if (sockets.length === 0) {
+      console.log(`⚠️  No players in game ${this.gameId}. Stopping game.`);
+      this.stop();
+      
+      // Ilmoita server.js:lle että peli pitää poistaa
+      this.emit('abandoned', this.gameId.toString());
+    }
+  }
+
+  async _loop() {
+    // Turvatarkistus: Vaikka ajastuslogiikan pitäisi estää tämä,
+    // varmistetaan, ettei jo pausetettu looppi suorita mitään.
     if (this._paused) return;
 
+    // Tarkista onko pelaajia joka 10. tick
+    if (this._turn % 10 === 0) {
+      await this._checkForPlayers();
+      if (!this._running) return; // Jos peli pysäytettiin, lopeta
+    }
+
+    // --- KAIKKI VANHA _tick-LOGIIKKASI ON TÄSSÄ ENNALLAAN ---
     this._turn = (this._turn ?? 0) + 1;
 
-    this._advanceEconomy();
+    await this._advanceEconomy();
 
     const diff = [];
-    this._advanceConstruction(diff);
-    this._advanceConquest(diff);
-
-    // ... AI logic ...
+    await this._advanceConstruction(diff);
+    await this._advanceConquest(diff);
     
     const aiActions = [];
     this.ai.forEach((ai, aiId) => {
-      
-    const wallet = this.state.resources[aiId];
-      if (!wallet || !ai.prevRes) return; // Jos lompakkoa ei ole, skipataan
+        const wallet = this.state.resources[aiId];
+        if (!wallet || !ai.prevRes) return; // Jos lompakkoa ei ole, skipataan
 
         const income = {
-          credits : wallet.credits - ai.prevRes.credits,
-          minerals : wallet.minerals - ai.prevRes.minerals
-          };
+            credits: wallet.credits - ai.prevRes.credits,
+            minerals: wallet.minerals - ai.prevRes.minerals
+        };
 
-        console.log(`[AI-INCOME] turn=${this._turn ?? 0}  ${aiId.slice(-4)}  +${income.credits}/${income.minerals}`);
-
-        aiActions.push(...ai.runTurn(this._turn ?? 0, income));
+        console.log(`[AI-INCOME] turn=${this._turn}  ${aiId.slice(-4)}  +${income.credits}/${income.minerals}`);
+        aiActions.push(...ai.runTurn(this._turn, income));
     });
 
-    await this._applyActions(aiActions);  // Tämä rivi vaatii async:in
-    diff.push(...aiActions);
+    if (aiActions.length > 0) {
+        await this._applyActions(aiActions);
+        diff.push(...aiActions);
+    }
 
-    // LISÄÄ progress-päivitykset
     this.state.stars.forEach(star => {
         if (star.planetaryQueue?.length > 0 || star.shipQueue?.length > 0) {
             diff.push({
@@ -340,10 +363,18 @@ async _tick() {
     });
 
     await this._flush(diff);
-}
+    // --- VANHA _tick-LOGIIKKA PÄÄTTYY TÄHÄN ---
 
 
- _advanceConstruction(diff) {
+    // --- UUSI, KORJATTU AJASTUSLOGIIKKA ---
+    // Kun kaikki tämän kierroksen työt on tehty, ajastetaan SEURAAVA kierros.
+    // Tämä tapahtuu vain, jos peli on merkitty käynnissä olevaksi EIKÄ se ole paussilla.
+    if (this._running && !this._paused) {
+      this.timeoutId = setTimeout(() => this._loop(), this.getTickInterval());
+    }
+  }
+
+ async _advanceConstruction(diff) {
   /* PLANETARY ------------------------------------------------ */
   this.state.stars.forEach(star => {
     if (!star.planetaryQueue?.length) return;
@@ -464,7 +495,7 @@ async _tick() {
   
   /* ---------------- ECONOMY ---------------- */
 
-_advanceEconomy() {
+ async _advanceEconomy() {
     /* 1) Kerää 10 yhden sekunnin tickiä yhteen sykliksi */
     const TICKS_PER_CYCLE = 10;
     this._ecoTick = (this._ecoTick ?? 0) + 1;
@@ -728,7 +759,7 @@ async _applyActions(actions) {
   }
 }
 
-_advanceConquest(diff) {
+async _advanceConquest(diff) {
     this.state.stars.forEach(star => {
         // Skip jos ei valloitusta käynnissä
         if (!star.isBeingConqueredBy) return;

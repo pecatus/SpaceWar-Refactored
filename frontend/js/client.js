@@ -207,12 +207,19 @@ function setupEventListeners() {
     startGameButton.addEventListener('click', handleStartGame);
     resumeGameButton.addEventListener('click', handleResumeGame);
 
-    // Selaimen sulkeminen sammuttaa pelin
-    window.addEventListener('beforeunload', (event) => {
-    if (currentGameId && gameInProgress) {
-        // Ilmoita serverille että poistutaan
-        navigator.sendBeacon(`${BACKEND_URL}/api/games/${currentGameId}/leave`);
-        }
+    // Varmista että socket katkaistaan kun sivu suljetaan
+    window.addEventListener('beforeunload', () => {
+    if (window.socket && window.socket.connected) {
+        console.log('Page closing - disconnecting socket');
+        window.socket.disconnect();
+    }
+    });
+
+    // Varmista että socket katkaistaan kun pelaaja poistuu sivulta
+    window.addEventListener('unload', () => {
+    if (window.socket && window.socket.connected) {
+        window.socket.disconnect();
+    }
     });
     
     // AI settings

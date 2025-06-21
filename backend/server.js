@@ -15,6 +15,11 @@ const Game        = require("./models/Game");
 
 const app  = express();
 const PORT = process.env.PORT || 3001;
+/* Käytetään muistissa pientä manager-cachea: Map<gameId, GameManager> */
+const managers = new Map();
+/* Tallennetaan human player socketit: Map<gameId, socketId> */
+const humanPlayerSockets = new Map();
+
 
 app.use(express.json());
 
@@ -62,57 +67,12 @@ const io = new Server(httpSrv, {
   }
 });
 
-/* Käytetään muistissa pientä manager-cachea: Map<gameId, GameManager> */
-const managers = new Map();
 
 /* ---- Socket-tapahtumat ------------------------------ */
 io.on("connection", socket => {
   console.log("🔌  Client connected", socket.id);
   
-  // --- UUSI, TOIMIVA DISCONNECT-KÄSITTELIJÄ ---
-  socket.on("disconnecting", () => {
-    console.log(`⚡️ Client disconnected: ${socket.id}. Attempting immediate game cleanup.`);
-
-    // Etsitään peli, johon katkennut socket kuului, katsomalla sen huoneita.
-    // .find() löytää ensimmäisen osuman, mikä riittää yksinpelissä.
-    const gameRoomId = Array.from(socket.rooms).find(room => room !== socket.id && managers.has(room));
-
-    if (gameRoomId) {
-      console.log(`   - Disconnected socket was in game room: ${gameRoomId}. Stopping game immediately.`);
-      
-      const gm = managers.get(gameRoomId);
-      if (gm) {
-        // 1. Pysäytä pelilooppi VÄLITTÖMÄSTI
-        // Tämä lopettaa [AI-INCOME]-viestien tulostumisen.
-        gm.stop();
-
-        // 2. Poista pelimanageri aktiivisten pelien joukosta, jotta uudet komennot eivät löydä sitä.
-        managers.delete(gameRoomId);
-        console.log(`   - GameManager for ${gameRoomId} stopped and removed from active memory.`);
-
-        // 3. Merkitse peli päättyneeksi tietokantaan, jotta se ei jää sinne kummittelemaan.
-        // Tämä ajetaan taustalla, eikä sen tarvitse blokata muuta toimintaa.
-        Game.findByIdAndUpdate(gameRoomId, {
-          status: 'aborted',
-          finishedAt: new Date()
-        })
-        .exec() // Varmistaa, että palautetaan Promise
-        .then(updatedGame => {
-          if (updatedGame) {
-            console.log(`   - Game ${gameRoomId} successfully marked as 'aborted' in the database.`);
-          }
-        })
-        .catch(err => {
-          console.error(`   - Error updating game status in DB for ${gameRoomId}:`, err);
-        });
-      }
-    } else {
-      console.log(`   - Disconnected socket was not in any active game room. No action needed.`);
-    }
-  });
-
-
-  // --- PÄIVITETTY JOIN_GAME-KÄSITTELIJÄ ---
+  // Tallenna pelaajan peli-ID muistiin join_game yhteydessä
   socket.on("join_game", async ({ gameId }) => {
     try {
       if (!mongoose.Types.ObjectId.isValid(gameId)) {
@@ -120,27 +80,21 @@ io.on("connection", socket => {
       }
 
       const gm = managers.get(gameId);
-
-      // Jos jostain syystä pelimanageria ei löydy, lähetä virhe.
-      // (Tämän ei pitäisi enää tapahtua uudessa logiikassa).
       if (!gm) {
         throw new Error("Game manager not found. Cannot join.");
       }
       
-      // 1. Liitä socket pelihuoneeseen, jotta se vastaanottaa tulevat päivitykset.
+      // Tallenna human player socket
+      humanPlayerSockets.set(gameId, socket.id);
+      
       socket.join(gameId);
       console.log(`👥  Socket ${socket.id} successfully joined room ${gameId}`);
 
-      // 2. TÄSSÄ ON SE KRIITTINEN "VARMISTUS":
-      // Käynnistä pelin serveri-side-looppi, JOS se ei ole jo käynnissä.
       if (!gm.isRunning() && !gm.isPaused()) {
         console.log(`🚀 Starting game ${gameId} tick loop as player has joined.`);
         gm.start();
       }
 
-      // 3. Vahvista clientille, että liittyminen huoneeseen onnistui.
-      // HUOM: Emme enää lähetä `initial_state`-dataa tästä, koska client sai sen jo
-      // aiemmin HTTP-vastauksessa.
       socket.emit("joined", { success: true });
 
     } catch (err) {
@@ -148,6 +102,51 @@ io.on("connection", socket => {
       socket.emit("joined", { success: false, error: err.message });
     }
   });
+
+  // PARANNETTU disconnect-käsittelijä
+  socket.on("disconnecting", async () => {
+    console.log(`⚡️ Client disconnected: ${socket.id}`);
+
+    // Etsi kaikki pelit joissa tämä socket on mukana
+    for (const [gameId, humanSocketId] of humanPlayerSockets.entries()) {
+      // Tarkista onko tämä human player
+      if (humanSocketId === socket.id) {
+        console.log(`   - Human player disconnected from game ${gameId}. Stopping game.`);
+        
+        const gm = managers.get(gameId);
+        if (gm) {
+          // Pysäytä peli välittömästi
+          gm.stop();
+          managers.delete(gameId);
+          humanPlayerSockets.delete(gameId);
+          
+          // Poista kaikki socketit huoneesta
+          const socketsInRoom = await io.in(gameId).fetchSockets();
+          for (const s of socketsInRoom) {
+            s.leave(gameId);
+          }
+          
+          console.log(`   - Game ${gameId} stopped and all sockets removed from room.`);
+
+          // Merkitse peli päättyneeksi
+          Game.findByIdAndUpdate(gameId, {
+            status: 'aborted',
+            finishedAt: new Date()
+          })
+          .exec()
+          .then(updatedGame => {
+            if (updatedGame) {
+              console.log(`   - Game ${gameId} marked as 'aborted' in database.`);
+            }
+          })
+          .catch(err => {
+            console.error(`   - Error updating game status:`, err);
+          });
+        }
+      }
+    }
+  });
+
 
   /* Player command handling */
   socket.on("player_command", async (command) => {
@@ -216,50 +215,112 @@ io.on("connection", socket => {
 });
 
 /* ---------------------- REST API --------------------- */
-
 /** Luo uusi peli */
 app.post("/api/games/new", async (req, res) => {
   try {
     const playerId = req.sessionID; // Uniikki selain-istunnon tunniste
 
-    // --- TÄMÄ ON KRIITTINEN SIIVOUSLOGIIKKA ---
-    // Etsi KAIKKI tähän sessioon liittyvät vanhat, mahdollisesti käynnissä olevat pelit.
+    // --- PARANNETTU SIIVOUSLOGIIKKA ---
+    // Etsi KAIKKI tähän sessioon liittyvät vanhat pelit (sekä playing että lobby)
     const existingGames = await Game.find({ 
-      status: "playing",
+      status: { $in: ["playing", "lobby"] },
       "settings.playerId": playerId
     }).exec();
 
     if (existingGames.length > 0) {
       console.log(`🔄 Found ${existingGames.length} old game(s) for player ${playerId.slice(-6)}. Cleaning up...`);
-      existingGames.forEach(game => {
+      
+      // Käytä for-of looppia async/await kanssa
+      for (const game of existingGames) {
         const oldGameId = game._id.toString();
+        
+        // Pysäytä ja poista GameManager
         const oldGm = managers.get(oldGameId);
         if (oldGm) {
-          console.log(`   - Stopping and deleting active manager for game ${oldGameId}`);
+          console.log(`   - Stopping game ${oldGameId}`);
           oldGm.stop(); // Pysäyttää setInterval-loopin
+          oldGm.removeAllListeners(); // Poista kaikki event listenerit
           managers.delete(oldGameId);
         }
+        
+        // Poista human player socket mapping
+        humanPlayerSockets.delete(oldGameId);
+        
+        // Poista kaikki socketit vanhasta huoneesta
+        try {
+          const socketsInOldRoom = await io.in(oldGameId).fetchSockets();
+          for (const s of socketsInOldRoom) {
+            s.leave(oldGameId);
+          }
+          console.log(`   - Removed ${socketsInOldRoom.length} sockets from room ${oldGameId}`);
+        } catch (err) {
+          console.error(`   - Error removing sockets from room:`, err);
+        }
+        
+        // Merkitse peli päättyneeksi
         game.status = 'aborted';
         game.finishedAt = new Date();
-        game.save(); // Tallenna muutos tietokantaan
-      });
+        await game.save();
+        console.log(`   - Game ${oldGameId} marked as aborted`);
+      }
     }
     // --- SIIVOUS PÄÄTTYY ---
 
-    /* Luo ja käynnistä uusi peli  */
-    console.log(`✨ Creating new game for player ${req.sessionID.slice(-6)}.`);
+    /* Luo uusi peli */
+    console.log(`✨ Creating new game for player ${playerId.slice(-6)}.`);
+    
+    // Pelin asetukset (voit muokata näitä tai ottaa req.body:stä)
+    const gameConfig = {
+      humanName: req.body.playerName || "Player",
+      humanColor: req.body.playerColor || "#007bff",
+      numAiPlayers: req.body.aiCount || 1,
+      aiColors: req.body.aiColors || ["#dc3545", "#28a745", "#ffc107", "#17a2b8"],
+      starCount: req.body.starCount || 120,
+      playerId: playerId,
+      lobbyHost: "server",
+      speed: req.body.speed || 1
+    };
+
+    // Luo GameManager ja maailma
     const gm = new GameManager({ io });
-    const gameConfig = { /* ... */ };
-
-    // createWorld palauttaa nyt { success: true, initialState: { ... } }
     const result = await gm.createWorld(gameConfig);
-    const newGameId = result.initialState.gameId; // Otetaan gameId talteen initialStatesta
+    const newGameId = result.initialState.gameId;
 
-    // Peli ei käynnisty vielä, vaan vasta kun pelaaja liittyy
+    // Kuuntele jos peli hylätään (ei pelaajia)
+    gm.on('abandoned', async (abandonedGameId) => {
+      console.log(`🗑️  Game ${abandonedGameId} abandoned - cleaning up`);
+      
+      // Poista managereista ja socket-mappauksesta
+      managers.delete(abandonedGameId);
+      humanPlayerSockets.delete(abandonedGameId);
+      
+      // Varmista että kaikki socketit poistetaan huoneesta
+      try {
+        const remainingSockets = await io.in(abandonedGameId).fetchSockets();
+        for (const s of remainingSockets) {
+          s.leave(abandonedGameId);
+        }
+      } catch (err) {
+        console.error('Error removing sockets on abandonment:', err);
+      }
+      
+      // Merkitse peli päättyneeksi tietokannassa
+      Game.findByIdAndUpdate(abandonedGameId, {
+        status: 'abandoned',
+        finishedAt: new Date()
+      }).exec().catch(err => {
+        console.error('Error marking game as abandoned:', err);
+      });
+    });
+
+    // Tallenna GameManager aktiivisten pelien listaan
     managers.set(newGameId.toString(), gm);
+    
+    console.log(`✅ New game ${newGameId} created successfully`);
 
-    // LÄHETETÄÄN KOKO ALKUTILA VASTAUKSENA
+    // Palauta pelin alkutila clientille
     res.status(201).json(result);
+    
   } catch (err) {
     console.error("❌ Error in /api/games/new:", err);
     res.status(500).json({ success: false, error: err.message });
