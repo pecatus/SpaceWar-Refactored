@@ -29,6 +29,15 @@ const INFRA_LIMITS = {
 const SHIP_SPEEDS = { fast: 60, slow: 6, fighterSlow: 12 };
 const TICK_MS     = 1000;           // 1 s
 
+// Taisteluissa käytettävät vakiot
+const COMBAT_CONSTANTS = {
+  DEFENSE_HP_PER_LEVEL: 4,
+  CRUISER_DMG_VS_DEFENSE: 4,
+  DESTROYER_DMG_VS_DEFENSE: 0.5,
+  FIGHTER_DMG_VS_DEFENSE: 0.25,
+  COMBAT_CHECK_INTERVAL: 1  // Tikkien määrä taistelutarkistusten välillä
+};
+
 /* ------------------------------------------------------------------------- */
 
 class GameManager extends EventEmitter {
@@ -55,10 +64,21 @@ class GameManager extends EventEmitter {
     this._speed = 1;              // oletusnopeus 1
     this._baseTickMs = 1000;
     this._turn = 0;
-    this._ecoTick = 0;
+    this._ecoTick = 0;            // Talouden tickin alustus
+    this._combatTick = 0;         // Taistelun tickin alustus
 
     this.abandonmentTimeout = null;  // Tähän tallennetaan hylkäämisajastin, jotta palvelin ei jää päälle
+
+    this._pendingSaves = {
+      stars: new Set(),
+      ships: new Set()
+    },
+    
+    this._diffBuffer = [];
+    this._lastDiffSent = 0;
+    this.DIFF_SEND_INTERVAL = 250;
   }
+  
 
   // Onko pausella tahika ei
     isRunning() {
@@ -129,39 +149,147 @@ class GameManager extends EventEmitter {
     await Player.insertMany(players);
 
     /* 3) Tähdet (ensimmäiset pelaajille, loput neutraleiksi) */
+    /* 3) Tähdet - KORJATTU VERSIO */
     const stars = [];
+    
+    // Lasketaan kartan koko samalla kaavalla kuin monoliitissa
+    const spread = 220 + Math.pow(starCount, 0.85) * 8;
+    
+    // Apufunktio pyöreän kartan luomiseen
+    const getRandomPosition = (spread) => {
+        const t = Math.random() * 2 * Math.PI;
+        const r = Math.sqrt(Math.random()) * spread;
+        const x = Math.cos(t) * r;
+        const z = Math.sin(t) * r;
+        
+        // Y-akseli (pystysuunta 3D:ssä, mutta tässä käytetään z:ta korkeudeksi)
+        const THICKNESS = 0.55;
+        const maxY = spread * THICKNESS * (r / spread);
+        const y = (Math.random() * 2 - 1) * maxY;
+        
+        return { x, y, z };
+    };
+    
+    // Homeworldien minimivälit
+    const MIN_HOMEWORLD_DISTANCE_FACTOR = 0.4;
+    const minHomeworldDist = spread * MIN_HOMEWORLD_DISTANCE_FACTOR;
+    const homeworldPositions = [];
 
     for (let i = 0; i < starCount; i++) {
         let ownerId = null;
         let isHomeworld = false;
         
-        // Ensimmäiset tähdet menee pelaajille (yksi per pelaaja)
         if (i < players.length) {
             ownerId = players[i]._id;
             isHomeworld = true;
         }
-        // Kaikki muut ovat neutraleja
+
+        let position;
+        let positionOk = false;
+        let attempts = 0;
+        
+        // Yritetään sijoittaa tähti
+        while (!positionOk && attempts < 100) {
+            position = getRandomPosition(spread);
+            
+            if (isHomeworld) {
+                // Tarkista etäisyys muihin homeworldeihin
+                positionOk = true;
+                for (const pos of homeworldPositions) {
+                    const dist = Math.sqrt(
+                        Math.pow(position.x - pos.x, 2) +
+                        Math.pow(position.y - pos.y, 2) +
+                        Math.pow(position.z - pos.z, 2)
+                    );
+                    if (dist < minHomeworldDist) {
+                        positionOk = false;
+                        break;
+                    }
+                }
+                if (positionOk) {
+                    homeworldPositions.push({ ...position });
+                }
+            } else {
+                // Normaalit tähdet - tarkista että ei liian lähellä mitään tähteä
+                positionOk = true;
+                const minStarDist = 25; // Minimietäisyys tähtien välillä
+                for (const existingStar of stars) {
+                    const dist = Math.sqrt(
+                        Math.pow(position.x - existingStar.position.x, 2) +
+                        Math.pow(position.y - existingStar.position.y, 2) +
+                        Math.pow(position.z - existingStar.position.z, 2)
+                    );
+                    if (dist < minStarDist) {
+                        positionOk = false;
+                        break;
+                    }
+                }
+            }
+            attempts++;
+        }
+        
+        // Jos ei onnistunut, sijoita satunnaisesti
+        if (!positionOk) {
+            position = getRandomPosition(spread);
+        }
 
         const starData = {
-          gameId  : this.gameId,
-          ownerId : ownerId,                        // null → neutral
-          name    : `Star ${i + 1}`,
-          isHomeworld,
-          position: { x: Math.random()*1000, y: Math.random()*1000, z: 0 },
-          infrastructureLevel : 1,
-
-          /* --- start-bonukset vain homeworldille --- */
-          mines         : isHomeworld ? 1 : 0,
-          shipyardLevel : isHomeworld ? 1 : 0,
-          population    : isHomeworld ? 5 : 1,       // homeworld 5, muut 1
-          planetaryQueue        : [],
-          shipQueue             : [],
-          planetaryQueueTotalTime: 0,
-          shipQueueTotalTime    : 0
+            gameId  : this.gameId,
+            ownerId : ownerId,
+            name    : `Star ${i + 1}`,
+            isHomeworld,
+            position: position, // Käytetään laskettua positiota
+            infrastructureLevel : 1,
+            mines         : isHomeworld ? 1 : 0,
+            shipyardLevel : isHomeworld ? 1 : 0,
+            population    : isHomeworld ? 5 : 1,
+            planetaryQueue        : [],
+            shipQueue             : [],
+            planetaryQueueTotalTime: 0,
+            shipQueueTotalTime    : 0,
+            defenseLevel: isHomeworld ? 0 : 0,
+            defenseHP: 0, 
         };
 
         stars.push(new Star(starData));
+    }
+
+    /* 4) Luo starlane-yhteydet - KORJATTU */
+    const STAR_CONNECTION_MAX_DIST_BASE = 175;
+    const STAR_CONNECTION_PROBABILITY = 0.25;
+    
+    // Skaalaa etäisyysraja ja todennäköisyys
+    const scale = Math.sqrt(starCount / 125);
+    const STAR_CONNECTION_MAX_DIST = STAR_CONNECTION_MAX_DIST_BASE * scale;
+    const STAR_CONNECTION_PROB = STAR_CONNECTION_PROBABILITY / scale;
+
+    for (let i = 0; i < stars.length; i++) {
+        for (let j = i + 1; j < stars.length; j++) {
+            const star1 = stars[i];
+            const star2 = stars[j];
+            
+            const dist = Math.sqrt(
+                Math.pow(star1.position.x - star2.position.x, 2) +
+                Math.pow(star1.position.y - star2.position.y, 2) +
+                Math.pow(star1.position.z - star2.position.z, 2)
+            );
+            
+            // Tarkista myös että molemmilla on tilaa uusille yhteyksille
+            const maxConnections = 4;
+            if (dist < STAR_CONNECTION_MAX_DIST && 
+                Math.random() < STAR_CONNECTION_PROB &&
+                (!star1.connections || star1.connections.length < maxConnections) &&
+                (!star2.connections || star2.connections.length < maxConnections)) {
+                
+                if (!star1.connections) star1.connections = [];
+                if (!star2.connections) star2.connections = [];
+                
+                star1.connections.push(star2._id);
+                star2.connections.push(star1._id);
+            }
         }
+    }
+
     await Star.insertMany(stars);
 
     /* 4) Päivitä Game-doc (optio, jos haluat tallentaa listat viitteinä myöhemmin) */
@@ -206,12 +334,12 @@ class GameManager extends EventEmitter {
  
 
     // AI-instanssien luonti - Varmistetaan, että tämä koskee vain AI-pelaajia
-    this.ai.clear(); // Tyhjennetään vanhat AI:t varmuuden vuoksi
+    this.ai.clear();
     const humanPlayerId = this._humanId(players);
     const config = { infraLimits: INFRA_LIMITS, playerId: humanPlayerId, speeds: SHIP_SPEEDS };
     
-    players.forEach(p => {
-      if (p.isAI) { // Luodaan controller VAIN jos p.isAI on totta
+    for (const p of players) {
+      if (p.isAI) {
         const aiId = p._id.toString();
         const aiWallet = this.state.resources[aiId];
         
@@ -221,12 +349,17 @@ class GameManager extends EventEmitter {
             stars: this.state.stars, 
             ships: this.state.ships 
           };
-          this.ai.set(aiId, new AIController(aiId, view, config));
+          const aiController = new AIController(aiId, view, config);
+          // Alusta prevRes heti!
+          aiController.prevRes = { ...aiWallet };
+          this.ai.set(aiId, aiController);
         }
       }
-    });
+    }
   }
 
+
+  
   /* ======================================================================= */
   /*  ----------  SIMULAATIOLOOPPI  ---------------------------------------- */
   /* ======================================================================= */
@@ -282,12 +415,7 @@ class GameManager extends EventEmitter {
             this.gameDoc.tick = this._turn || 0;
             await this.gameDoc.save();
             
-            // Tallenna tähtien tilat
-            await Promise.all(this.state.stars.map(star => star.save()));
-            
-            // Tallenna alusten tilat
-            await Promise.all(this.state.ships.map(ship => ship.save()));
-            
+         
             console.log(`💾 Game state saved for ${this.gameId}`);
         } catch (err) {
             console.error(`Failed to save game state:`, err);
@@ -312,38 +440,42 @@ class GameManager extends EventEmitter {
     }
   }
 
-  async _loop() {
-    // Turvatarkistus: Vaikka ajastuslogiikan pitäisi estää tämä,
-    // varmistetaan, ettei jo pausetettu looppi suorita mitään.
+async _loop() {
     if (this._paused) return;
-
-    // Tarkista onko pelaajia joka 10. tick
-    if (this._turn % 10 === 0) {
-      await this._checkForPlayers();
-      if (!this._running) return; // Jos peli pysäytettiin, lopeta
-    }
-
-    // --- KAIKKI VANHA _tick-LOGIIKKASI ON TÄSSÄ ENNALLAAN ---
+    
     this._turn = (this._turn ?? 0) + 1;
 
+    // 1. Economy
     await this._advanceEconomy();
 
+    // 2. Kerää muutokset
     const diff = [];
     await this._advanceConstruction(diff);
+    await this._advanceMovement(diff);
+    
+    // 3. Combat - nyt optimoitu!
+    await this._resolveCombat(diff);
+    
     await this._advanceConquest(diff);
     
+    // 4. AI
     const aiActions = [];
     this.ai.forEach((ai, aiId) => {
         const wallet = this.state.resources[aiId];
-        if (!wallet || !ai.prevRes) return; // Jos lompakkoa ei ole, skipataan
-
-        const income = {
-            credits: wallet.credits - ai.prevRes.credits,
-            minerals: wallet.minerals - ai.prevRes.minerals
-        };
-
-        console.log(`[AI-INCOME] turn=${this._turn}  ${aiId.slice(-4)}  +${income.credits}/${income.minerals}`);
-        aiActions.push(...ai.runTurn(this._turn, income));
+        if (!wallet) return;
+        
+        ai.stars = this.state.stars;
+        ai.ships = this.state.ships;
+        
+        if (ai.prevRes) {
+            const income = {
+                credits: wallet.credits - ai.prevRes.credits,
+                minerals: wallet.minerals - ai.prevRes.minerals
+            };
+            aiActions.push(...ai.runTurn(this._turn, income));
+        }
+        
+        ai.prevRes = { ...wallet };
     });
 
     if (aiActions.length > 0) {
@@ -351,6 +483,7 @@ class GameManager extends EventEmitter {
         diff.push(...aiActions);
     }
 
+    // 5. Construction progress diffit
     this.state.stars.forEach(star => {
         if (star.planetaryQueue?.length > 0 || star.shipQueue?.length > 0) {
             diff.push({
@@ -362,22 +495,101 @@ class GameManager extends EventEmitter {
         }
     });
 
+    diff.unshift({
+        action: 'TICK_INFO',
+        tick: this._turn,
+        speed: this._speed,
+        timestamp: Date.now()
+    });
+
+    // 6. LÄHETÄ DIFFIT HETI!
     await this._flush(diff);
-    // --- VANHA _tick-LOGIIKKA PÄÄTTYY TÄHÄN ---
-
-
-    // --- UUSI, KORJATTU AJASTUSLOGIIKKA ---
-    // Kun kaikki tämän kierroksen työt on tehty, ajastetaan SEURAAVA kierros.
-    // Tämä tapahtuu vain, jos peli on merkitty käynnissä olevaksi EIKÄ se ole paussilla.
+    
+    // 7. Tallenna taustalla (EI await!)
+    this._saveInBackground().catch(err => {
+        console.error('[SAVE-ERROR] Background save failed:', err);
+    });
+    
+    // 8. Ajasta seuraava tick
     if (this._running && !this._paused) {
-      this.timeoutId = setTimeout(() => this._loop(), this.getTickInterval());
+        this.timeoutId = setTimeout(() => this._loop(), this.getTickInterval());
     }
-  }
+}
+
+// Uusi funktio taustallennukseen
+async _saveInBackground() {
+    const promises = [];
+    
+    // Kopioi listat
+    const starsToSave = [...this._pendingSaves.stars];
+    const shipsToSave = [...this._pendingSaves.ships];
+    const deletedShips = [...(this._pendingSaves.deletedShips || [])];
+    
+    // Tyhjennä alkuperäiset
+    this._pendingSaves.stars.clear();
+    this._pendingSaves.ships.clear();
+    this._pendingSaves.deletedShips = [];
+    
+    // Tallenna
+    starsToSave.forEach(star => {
+        promises.push(star.save().catch(e => 
+            console.error(`[BG-SAVE] Star ${star._id}:`, e.message)
+        ));
+    });
+    
+    shipsToSave.forEach(ship => {
+        promises.push(ship.save().catch(e => 
+            console.error(`[BG-SAVE] Ship ${ship._id}:`, e.message)
+        ));
+    });
+    
+    deletedShips.forEach(shipId => {
+        promises.push(Ship.findByIdAndDelete(shipId).catch(e =>
+            console.error(`[BG-SAVE] Delete ship ${shipId}:`, e.message)
+        ));
+    });
+    
+    if (promises.length > 0) {
+        console.log(`[BG-SAVE] Saving ${promises.length} documents in background`);
+        await Promise.all(promises);
+    }
+}
+
+async _checkConquestStart(star, ships, diff) {
+    if (star.isBeingConqueredBy || ships.length === 0) return;
+    
+    const attackerId = ships[0].ownerId?.toString();
+    const starOwnerId = star.ownerId?.toString();
+    
+    if (attackerId !== starOwnerId) {
+        console.log(`[CONQUEST-START] Starting conquest of ${star.name}`);
+        
+        star.isBeingConqueredBy = attackerId;
+        star.conquestProgress = 0;
+        this._pendingSaves.stars.add(star);
+        
+        // Aseta alukset conquering-tilaan
+        for (const ship of ships) {
+            ship.state = 'conquering';
+            this._pendingSaves.ships.add(ship);
+        }
+        
+        // Lähetä diff heti
+        diff.push({
+            action: 'CONQUEST_STARTED',
+            starId: star._id,
+            conquerorId: attackerId,
+            shipCount: ships.length
+        });
+    }
+}
 
  async _advanceConstruction(diff) {
   /* PLANETARY ------------------------------------------------ */
-  this.state.stars.forEach(star => {
-    if (!star.planetaryQueue?.length) return;
+  // Pidä kirjaa muutetuista tähdistä
+  const modifiedStars = new Set();
+  for (const star of this.state.stars) {
+      if (!star.planetaryQueue?.length) continue;
 
     // Vähennä ensimmäisen jonossa olevan aikaa
     const job = star.planetaryQueue[0];
@@ -391,25 +603,28 @@ class GameManager extends EventEmitter {
     if (job.timeLeft <= 0) {
       // 1. Pysyvä vaikutus planeettaan
       if (job.type === 'Mine')             star.mines          += 1;
-      else if (job.type === 'Defense Upgrade') star.defenseLevel  += 1;
       else if (job.type.startsWith('Shipyard')) star.shipyardLevel += 1;
       else if (job.type.startsWith('Infrastructure')) {
         const lvl = parseInt(job.type.match(/\d+/)[0], 10);
         star.infrastructureLevel = lvl;
       }
+      else if (job.type === 'Defense Upgrade') {
+        star.defenseLevel += 1;
+        // Lisää tämä rivi:
+        star.defenseHP = star.defenseLevel * COMBAT_CONSTANTS.DEFENSE_HP_PER_LEVEL;
+        star.markModified('defenseHP');
+      }
 
       // 2. Poista jonosta ja tallenna
       star.planetaryQueue.shift();
       star.markModified('planetaryQueue');
+
       // Nollaa total time jos queue tyhjeni
       if (star.planetaryQueue.length === 0) {
         star.planetaryQueueTotalTime = 0;
       }
 
-      // LISÄÄ TÄMÄ - Nollaa total time jos queue tyhjeni
-      if (star.planetaryQueue.length === 0) {
-        star.planetaryQueueTotalTime = 0;
-      }
+      modifiedStars.add(star);
 
       diff.push({
           action : 'COMPLETE_PLANETARY',
@@ -429,11 +644,11 @@ class GameManager extends EventEmitter {
           }
       });
     }
-  });
+  }
 
   /* SHIPS ---------------------------------------------------- */
-  this.state.stars.forEach(star => {
-      if (!star.shipQueue?.length) return;
+  for (const star of this.state.stars) {
+    if (!star.shipQueue?.length) continue;
 
       const job = star.shipQueue[0];
       job.timeLeft -= 1;
@@ -471,10 +686,8 @@ class GameManager extends EventEmitter {
           star.shipQueueTotalTime = 0;
         }
 
-        // LISÄÄ TÄMÄ - Nollaa total time jos queue tyhjeni
-        if (star.shipQueue.length === 0) {
-          star.shipQueueTotalTime = 0;
-        }
+        await newShip.save(); 
+        modifiedStars.add(star);
 
         diff.push({
             action : 'SHIP_SPAWNED',
@@ -489,8 +702,12 @@ class GameManager extends EventEmitter {
                 }
         });
       }
-  });
-}
+    }
+      // TALLENNA KAIKKI MUUTETUT TÄHDET VAIN KERRAN
+      for (const star of modifiedStars) {
+        await star.save();
+      }
+  }
 
   
   /* ---------------- ECONOMY ---------------- */
@@ -529,7 +746,7 @@ class GameManager extends EventEmitter {
     const SHIP_UPKEEP = { Fighter: 1, Destroyer: 2, Cruiser: 3, 'Slipstream Frigate': 4 };
     const PD_UPKEEP = 2;
     const SHIPYARD_UPKEEP = 3;
-    const resourceUpdates = [];
+
 
     Object.entries(this.state.resources).forEach(([pid, wallet]) => {
         const oldCredits = wallet.credits;
@@ -662,12 +879,45 @@ async _applyActions(actions) {
         console.log(`Processing MOVE_SHIP: ${act.shipId} -> ${act.toStarId}`);
         
         const sh = this._ship(act.shipId);
-        const fromStar = this._star(act.fromStarId || sh.parentStarId);
+        if (!sh) {
+            console.warn(`Ship ${act.shipId} not found`);
+            continue;
+        }
+        
         const toStar = this._star(act.toStarId);
+        if (!toStar) {
+            console.warn(`Target star ${act.toStarId} not found`);
+            continue;
+        }
         
-        if (!sh || !toStar) continue;
+        // Tarkista mistä lähtee - voi olla parentStarId TAI nykyinen sijainti jos orbiting
+        let fromStarId = act.fromStarId || sh.parentStarId;
         
-        // Tarkista onko starlane
+        // Jos alus on jo liikkeessä, käytä targetStaria lähtöpisteenä
+        if (sh.state === 'moving' && sh.targetStarId) {
+            fromStarId = sh.targetStarId;
+        }
+        
+        // Jos ei vieläkään lähtötähteä, etsi missä alus on
+        if (!fromStarId) {
+            // Etsi tähti jonka kiertoradalla alus on
+            const orbitingStar = this.state.stars.find(star => 
+                star.orbitingShips?.some(s => s._id.toString() === sh._id.toString())
+            );
+            if (orbitingStar) {
+                fromStarId = orbitingStar._id;
+            }
+        }
+        
+        const fromStar = fromStarId ? this._star(fromStarId) : null;
+        
+        // Älä liiku jos samaan tähteen
+        if (fromStar && fromStar._id.equals(toStar._id)) {
+            console.warn(`Ship ${sh._id} ordered to same star – ignoring`);
+            continue;
+        }
+        
+        // Laske nopeus
         let speed = SHIP_SPEEDS.slow;
         if (fromStar && fromStar.connections.some(c => c.toString() === act.toStarId)) {
             speed = SHIP_SPEEDS.fast;
@@ -675,94 +925,148 @@ async _applyActions(actions) {
             speed = SHIP_SPEEDS.fighterSlow;
         }
         
+        // Päivitä aluksen tila
         sh.state = "moving";
         sh.targetStarId = act.toStarId;
-        sh.parentStarId = act.fromStarId || sh.parentStarId;
-        sh.speed = speed; // Tallenna nopeus
+        sh.parentStarId = null;
+        sh.speed = speed;
+        sh.departureStarId = fromStarId;
+        sh.movementTicks = 0;
+        
+        // Laske matka-aika
+        if (fromStar) {
+            const dist = Math.hypot(
+                fromStar.position.x - toStar.position.x,
+                fromStar.position.y - toStar.position.y,
+                fromStar.position.z - toStar.position.z
+            );
+            sh.ticksToArrive = Math.max(1, Math.ceil(dist / speed));
+        } else {
+            sh.ticksToArrive = 10; // Default jos ei lähtötähteä
+        }
         
         await sh.save();
         
-        // Lähetä diff takaisin clientille nopeuden kanssa
+        // Lähetä diff
         const diff = {
             action: 'SHIP_MOVING',
             shipId: act.shipId,
-            fromStarId: sh.parentStarId,
+            fromStarId: fromStarId,
             toStarId: act.toStarId,
             state: 'moving',
-            speed: speed // Lisää nopeus
+            speed: speed
         };
         
         this.io.to(this.gameId.toString()).emit("game_diff", [diff]);
         continue;
     }
+
     /* --------- SHIP ARRIVAL ---------- */
     if (act.action === "SHIP_ARRIVED") {
-        console.log(`Processing SHIP_ARRIVED: ${act.shipId} at ${act.atStarId}`);
-        
+        // Tämä on visuaalinen notifikaatio - tarkista vain että data on synkassa
         const sh = this._ship(act.shipId);
-        if (!sh) continue;
-        
-        sh.state = "orbiting";
-        sh.parentStarId = act.atStarId;
-        sh.targetStarId = null;
-        await sh.save();
-        
-        // Tarkista voiko aloittaa valloituksen
-        const star = this._star(act.atStarId);
-        if (star && star.ownerId?.toString() !== sh.ownerId?.toString()) {
-            // Etsi KAIKKI omat alukset tähdellä
-            const myShipsAtStar = this.state.ships.filter(s => 
-                s.parentStarId?.toString() === act.atStarId &&
-                s.ownerId?.toString() === sh.ownerId?.toString() &&
-                (s.state === 'orbiting' || s.state === 'conquering')
-            );
-            
-            // Etsi viholliset
-            const enemyShips = this.state.ships.filter(s => 
-                s.parentStarId?.toString() === act.atStarId &&
-                s.ownerId?.toString() !== sh.ownerId?.toString() &&
-                (s.state === 'orbiting' || s.state === 'conquering')
-            );
-            
-            if (enemyShips.length === 0 && !star.isBeingConqueredBy) {
-                // Aloita valloitus - KAIKKI omat alukset
-                console.log(`Starting conquest of ${star.name} with ${myShipsAtStar.length} ships`);
-                
-                // Aseta KAIKKI omat alukset conquering-tilaan
-                for (const myShip of myShipsAtStar) {
-                    myShip.state = 'conquering';
-                    await myShip.save();
-                }
-                
-                star.isBeingConqueredBy = sh.ownerId;
-                star.conquestProgress = 0;
-                await star.save();
-                
-                const diffAction = {
-                    action: 'CONQUEST_STARTED',
-                    starId: star._id,
-                    conquerorId: sh.ownerId,
-                    shipCount: myShipsAtStar.length
-                };
-                
-                this.io.to(this.gameId.toString()).emit("game_diff", [diffAction]);
-            } else if (enemyShips.length === 0 && star.isBeingConqueredBy?.toString() === sh.ownerId?.toString()) {
-                // Liity jo käynnissä olevaan valloitukseen
-                console.log(`Ship joining ongoing conquest of ${star.name}`);
-                sh.state = 'conquering';
-                await sh.save();
-            }
+        if (sh && sh.state !== 'orbiting') {
+            console.warn(`[SYNC-ERROR] Ship ${act.shipId} not in orbiting state after arrival!`);
         }
         
+        console.log(`[VISUAL-ONLY] SHIP_ARRIVED notification for ship ${act.shipId}`);
         continue;
     }
   }
 }
 
+async _advanceMovement(diff) {
+    const movingShips = this.state.ships.filter(s => s.state === 'moving');
+    
+    // UUSI: Kerää ensin kaikki TÄLLÄ tickillä saapuvat
+    const arrivalsThisTick = new Map(); // starId -> ships array
+    
+    for (const ship of movingShips) {
+        if (!ship.targetStarId) {
+            console.warn(`Moving ship ${ship._id} has no target, fixing...`);
+            ship.state = 'orbiting';
+            ship.parentStarId = ship.departureStarId || this.state.stars[0]._id;
+            this._pendingSaves.ships.add(ship);
+            continue;
+        }
+        
+        const targetStar = this._star(ship.targetStarId);
+        if (!targetStar) {
+            console.warn(`Ship ${ship._id} target star not found`);
+            continue;
+        }
+        
+        const ticksToArrive = ship.ticksToArrive ?? 1;
+        ship.movementTicks = (ship.movementTicks || 0) + 1;
+        
+        // TÄRKEÄ: Vain jos saapuu JUURI NYT
+        if (ship.movementTicks >= ticksToArrive) {
+            const starId = targetStar._id.toString();
+            if (!arrivalsThisTick.has(starId)) {
+                arrivalsThisTick.set(starId, []);
+            }
+            arrivalsThisTick.get(starId).push({
+                ship: ship,
+                targetStar: targetStar
+            });
+        }
+    }
+    
+    // Käsittele jokainen tähti johon saapui aluksia
+    for (const [starId, arrivals] of arrivalsThisTick) {
+        const targetStar = arrivals[0].targetStar;
+        const arrivalDiffs = [];
+        
+        // Päivitä kaikkien TÄLLÄ tickillä saapuvien alusten tila
+        for (const arrival of arrivals) {
+            const ship = arrival.ship;
+            console.log(`Ship ${ship._id} arrived at ${targetStar.name}`);
+            
+            ship.state = 'orbiting';
+            ship.parentStarId = ship.targetStarId;
+            ship.targetStarId = null;
+            ship.movementTicks = 0;
+            ship.departureStarId = null;
+            ship.ticksToArrive = null;
+            
+            this._pendingSaves.ships.add(ship);
+            
+            arrivalDiffs.push({
+                action: 'SHIP_ARRIVED',
+                shipId: ship._id.toString(),
+                atStarId: targetStar._id.toString()
+            });
+        }
+        
+        // Lähetä saapumiset
+        if (this.io && arrivalDiffs.length > 0) {
+            this.io.to(this.gameId.toString()).emit("game_diff", arrivalDiffs);
+        }
+        
+        // Tarkista taistelu/valloitus
+        const combatDiff = [];
+        const shipsAtTarget = this.state.ships.filter(s =>
+            s.parentStarId?.toString() === targetStar._id.toString() &&
+            (s.state === 'orbiting' || s.state === 'conquering')
+        );
+        
+        await this._resolveCombatAtStar(targetStar, combatDiff, shipsAtTarget);
+        
+        // Lähetä combat diffit
+        if (this.io && combatDiff.length > 0) {
+            this.io.to(this.gameId.toString()).emit("game_diff", combatDiff);
+        }
+        
+        // Lisää diffeihin
+        diff.push(...arrivalDiffs);
+        diff.push(...combatDiff);
+    }
+}
+
 async _advanceConquest(diff) {
-    this.state.stars.forEach(star => {
-        // Skip jos ei valloitusta käynnissä
-        if (!star.isBeingConqueredBy) return;
+    for (const star of this.state.stars) {
+      // Skip jos ei valloitusta käynnissä
+      if (!star.isBeingConqueredBy) continue;
         
         const conquerorId = star.isBeingConqueredBy.toString();
         const defenderId = star.ownerId?.toString();
@@ -773,6 +1077,20 @@ async _advanceConquest(diff) {
             s.ownerId?.toString() === conquerorId &&
             s.state === 'conquering'
         );
+
+        if (conqueringShips.length === 0) {
+          star.isBeingConqueredBy = null;
+          star.conquestProgress   = 0;
+          star.markModified('isBeingConqueredBy');
+          star.markModified('conquestProgress');
+
+          diff.push({
+            action : 'CONQUEST_HALTED',
+            starId : star._id,
+            reason : 'no_conquerors'
+          });
+          continue;          // siirry käsittelemään seuraavaa tähteä
+        }
         
         // Tarkista onko puolustajia
         const defendingShips = this.state.ships.filter(s => 
@@ -790,18 +1108,19 @@ async _advanceConquest(diff) {
             star.markModified('conquestProgress');
             
             // Palauta alukset orbitoimaan
-            conqueringShips.forEach(s => {
-                s.state = 'orbiting';
-                s.markModified('state');
-            });
+            for (const s of conqueringShips) {
+              s.state = 'orbiting';
+              s.markModified('state');
+              this._pendingSaves.ships.add(s); // Lisää tallennukset!
+            }
             
             diff.push({
                 action: 'CONQUEST_HALTED',
                 starId: star._id,
                 reason: 'defenders_present'
             });
-            return;
-        }
+          continue;
+         }
         
         // Laske valloitusnopeus
         if (conqueringShips.length > 0) {
@@ -897,15 +1216,431 @@ async _advanceConquest(diff) {
                 reason: 'no_conquerors'
             });
         }
-    });
+        this._pendingSaves.stars.add(star);
+    };
+  }
+
+  /* ========================================================================== */
+  /*  COMBAT SYSTEM                                                             */
+  /* ========================================================================== */
+async _resolveCombat(diff) {
+    // Rakenna kartta yhdellä läpikäynnillä O(N)
+    const shipsByStarId = new Map();
+    
+    for (const ship of this.state.ships) {
+        if (!['orbiting', 'conquering'].includes(ship.state)) continue;
+        
+        const starId = ship.parentStarId?.toString();
+        if (!starId) continue;
+        
+        if (!shipsByStarId.has(starId)) {
+            shipsByStarId.set(starId, []);
+        }
+        shipsByStarId.get(starId).push(ship);
+    }
+    
+    // Käy läpi vain tähdet joissa on aluksia
+    for (const [starId, shipsAtStar] of shipsByStarId) {
+        const star = this._star(starId);
+        if (!star) continue;
+        
+        // Tarkista tarvitaanko taistelua
+        const factions = new Set(shipsAtStar.map(s => s.ownerId?.toString()));
+        
+        const needsCombat = factions.size > 1 || 
+            (factions.size === 1 && star.defenseHP > 0 && 
+             Array.from(factions)[0] !== star.ownerId?.toString());
+        
+        if (needsCombat || factions.size === 1) {
+            // Kutsu kolmella parametrilla!
+            await this._resolveCombatAtStar(star, diff, shipsAtStar);
+        }
+    }
 }
 
-  /* ---------------- FLUSH + BROADCAST ----- */
-  async _flush(diff) {
-    if (!this.io || !diff.length) return;
-    console.log(`[SEND] diff`, diff);        // debug
-    this.io.to(this.gameId.toString()).emit("game_diff", diff);
+async _resolveCombatAtStar(star, diff, shipsAtStar = null) {
+
+    if (!shipsAtStar) {
+        shipsAtStar = this.state.ships.filter(s =>
+            s.parentStarId?.toString() === star._id.toString() &&
+            (s.state === 'orbiting' || s.state === 'conquering')
+        );
+    }
+    
+    // DEBUG
+    if (shipsAtStar.length > 0) {
+        const shipsByFaction = {};
+        shipsAtStar.forEach(s => {
+            const owner = s.ownerId?.toString()?.slice(-4) || 'unknown';
+            shipsByFaction[owner] = (shipsByFaction[owner] || 0) + 1;
+        });
+        console.log(`[${Date.now()}] COMBAT-CHECK ${shipsAtStar.length} ships at ${star.name}:`, shipsByFaction);
+    }
+
+    // ============== LISÄÄ TÄMÄ OSIO TÄHÄN ==============
+    // 1.5 TÄRKEÄ: Jos valloitus on käynnissä, tarkista heti pitääkö se keskeyttää
+    if (star.isBeingConqueredBy) {
+        const conquerorId = star.isBeingConqueredBy.toString();
+        const starOwnerId = star.ownerId?.toString();
+        
+        // Laske eri faktioiden alukset
+        const shipsByOwner = {};
+        shipsAtStar.forEach(ship => {
+            const owner = ship.ownerId?.toString();
+            if (!owner) return;
+            shipsByOwner[owner] = (shipsByOwner[owner] || 0) + 1;
+        });
+        
+        // Tarkista onko muita faktioita kuin valloittaja
+        const otherFactions = Object.keys(shipsByOwner).filter(id => id !== conquerorId);
+        
+        // Jos on muita faktioita TAI valloittajan aluksia ei ole enää, keskeytä
+        if (otherFactions.length > 0 || !shipsByOwner[conquerorId]) {
+            console.log(`[CONQUEST-HALT] Halting conquest of ${star.name} - ${otherFactions.length > 0 ? 'enemies present' : 'no conquerors left'}`);
+            
+            star.isBeingConqueredBy = null;
+            star.conquestProgress = 0;
+            this._pendingSaves.stars.add(star);
+            
+            // Palauta kaikki alukset orbiting-tilaan
+            for (const ship of shipsAtStar) {
+                if (ship.state === 'conquering') {
+                    ship.state = 'orbiting';
+                    this._pendingSaves.ships.add(ship);
+                }
+            }
+            
+            // Lähetä halt-viesti heti
+            const haltDiff = [{
+                action: 'CONQUEST_HALTED',
+                starId: star._id,
+                reason: otherFactions.length > 0 ? 'combat' : 'no_conquerors'
+            }];
+            
+            if (this.io) {
+                this.io.to(this.gameId.toString()).emit("game_diff", haltDiff);
+            }
+            
+            diff.push(...haltDiff);
+        }
+    }
+
+    // 2. Ryhmittele faktioittain
+    const factionShips = {};
+    shipsAtStar.forEach(ship => {
+      const faction = ship.ownerId?.toString();
+      if (!faction) return;
+      if (!factionShips[faction]) factionShips[faction] = [];
+      factionShips[faction].push(ship);
+    });
+
+    const factions = Object.keys(factionShips);
+
+    // 3. Jos vain yksi faktio, tarkista valloitus
+    if (factions.length <= 1) {
+      
+      
+        // Tarkista hyökkääkö PD:tä vastaan
+        if (factions.length === 1 && star.defenseHP > 0 && factions[0] !== star.ownerId?.toString()) {
+            await this._resolvePDOnlyBattle(star, factionShips[factions[0]], diff);
+        }
+        
+        // Tarkista voiko aloittaa valloituksen
+        if (factions.length === 1 && !star.isBeingConqueredBy) {
+            const attackerId = factions[0];
+            const starOwnerId = star.ownerId?.toString();
+            
+            if (attackerId !== starOwnerId) {
+                console.log(`[CONQUEST-START] No combat needed - starting conquest of ${star.name}`);
+                
+                star.isBeingConqueredBy = attackerId;
+                star.conquestProgress = 0;
+                this._pendingSaves.stars.add(star);  // ✓ Tämä on jo oikein
+                
+                // Aseta alukset conquering-tilaan
+                for (const ship of factionShips[attackerId]) {
+                    ship.state = 'conquering';
+                    this._pendingSaves.ships.add(ship);  // ✓ LISÄÄ TÄMÄ
+                }
+                
+                // LÄHETÄ HETI CLIENTILLE
+                const conquestDiff = [{
+                    action: 'CONQUEST_STARTED',
+                    starId: star._id,
+                    conquerorId: attackerId,
+                    shipCount: factionShips[attackerId].length
+                }];
+                
+                if (this.io) {
+                    this.io.to(this.gameId.toString()).emit("game_diff", conquestDiff);
+                }
+                
+                diff.push(...conquestDiff);
+            }
+        }
+        
+        return;
+    }
+
+    // 4. Multi-faction combat - keskeytä valloitus
+    if (star.isBeingConqueredBy) {
+      star.isBeingConqueredBy = null;
+      star.conquestProgress = 0;
+      this._pendingSaves.stars.add(star);  // ✓ LISÄÄ TÄMÄ
+      
+      for (const ship of shipsAtStar) {
+        if (ship.state === 'conquering') {
+          ship.state = 'orbiting';
+          this._pendingSaves.ships.add(ship);  // ✓ LISÄÄ TÄMÄ
+        }
+      }
+      
+      // LÄHETÄ HETI
+      const haltDiff = [{ action: 'CONQUEST_HALTED', starId: star._id, reason: 'combat' }];
+      if (this.io) {
+        this.io.to(this.gameId.toString()).emit("game_diff", haltDiff);
+      }
+      diff.push(...haltDiff);
+    }
+
+    // 5-8. Combat phases (ei muutoksia tähän)
+    if (star.defenseHP > 0 && star.ownerId) {
+      const shots = star.defenseLevel * 3;
+      const enemyShips = shipsAtStar.filter(s => s.ownerId?.toString() !== star.ownerId?.toString());
+      for (let i = 0; i < shots && enemyShips.length > 0; i++) {
+        const target = this._pickTarget(enemyShips);
+        if (target) {
+          const damage = target.type === 'Cruiser' ? 1 : 2;
+          if (await this._applyDamage(target, damage, diff)) {
+            const idx = enemyShips.findIndex(s => s === target);
+            if (idx > -1) enemyShips.splice(idx, 1);
+          }
+        }
+      }
+    }
+
+    await this._combatPhase(factionShips, 'Cruiser', star, diff);
+    await this._combatPhase(factionShips, 'Destroyer', star, diff);
+    await this._combatPhase(factionShips, 'Fighter', star, diff);
+
+    if (star.defenseHP <= 0) {
+      await this._resolveMelee(factionShips, diff);
+    }
+    // Taistelun jälkeen, tarkista voiko valloitus alkaa
+    const remainingShips = this.state.ships.filter(s =>
+        s.parentStarId?.toString() === star._id.toString() &&
+        (s.state === 'orbiting' || s.state === 'conquering')
+    );
+
+    const remainingFactions = {};
+    remainingShips.forEach(ship => {
+        const faction = ship.ownerId?.toString();
+        if (!faction) return;
+        if (!remainingFactions[faction]) remainingFactions[faction] = [];
+        remainingFactions[faction].push(ship);
+    });
+
+    const remainingFactionCount = Object.keys(remainingFactions).length;
+
+    if (remainingFactionCount === 1 && !star.isBeingConqueredBy) {
+        const conquerorId = Object.keys(remainingFactions)[0];
+        const starOwnerId = star.ownerId?.toString();
+        
+        console.log(`[COMBAT-END] One faction remains. Conqueror: ${conquerorId?.slice(-4)}, Star owner: ${starOwnerId?.slice(-4) || 'neutral'}`);
+
+
+        if (conquerorId !== starOwnerId) {
+            console.log(`[CONQUEST-START] Starting conquest of ${star.name} after combat`);
+            
+            star.isBeingConqueredBy = conquerorId;
+            star.conquestProgress = 0;
+            // await star.save();  // ✗ POISTA TÄMÄ RIVI
+            this._pendingSaves.stars.add(star);  // ✓ LISÄÄ TÄMÄ
+            
+            // Aseta kaikki alukset conquering-tilaan
+            for (const ship of remainingFactions[conquerorId]) {
+                ship.state = 'conquering';
+                this._pendingSaves.ships.add(ship);  // ✓ LISÄÄ TÄMÄ
+            }
+            
+            // LÄHETÄ HETI
+            const conquestStartDiff = [{
+                action: 'CONQUEST_STARTED',
+                starId: star._id,
+                conquerorId: conquerorId,
+                shipCount: remainingFactions[conquerorId].length
+            }];
+            
+            if (this.io) {
+                this.io.to(this.gameId.toString()).emit("game_diff", conquestStartDiff);
+            }
+            
+            diff.push(...conquestStartDiff);
+        } else {
+            console.log(`[CONQUEST-SKIP] Faction already owns the star`);
+        }
+    }
+}
+
+  // Apufunktiot Combatiin
+  _pickTarget(ships, predicate = () => true) {
+    const valid = ships.filter(s => this.state.ships.some(liveShip => liveShip._id.equals(s._id)) && predicate(s));
+    return valid.sort((a, b) => a.hp - b.hp)[0] || null;
   }
+
+  async _applyDamage(ship, damage, diff) {
+      ship.hp -= damage;
+      if (ship.hp <= 0) {
+        await this._destroyShip(ship._id, diff);
+        return true;
+      }
+      this._pendingSaves.ships.add(ship);  // LISÄÄ TÄMÄ
+      return false;
+  }
+
+  _tryDamagePD(star, attacker, diff) {
+    if (star.defenseHP <= 0 || attacker.ownerId?.toString() === star.ownerId?.toString()) {
+      return false;
+    }
+    let damage = 0;
+    switch (attacker.type) {
+      case 'Cruiser':   damage = COMBAT_CONSTANTS.CRUISER_DMG_VS_DEFENSE; break;
+      case 'Destroyer': damage = COMBAT_CONSTANTS.DESTROYER_DMG_VS_DEFENSE; break;
+      case 'Fighter':   damage = COMBAT_CONSTANTS.FIGHTER_DMG_VS_DEFENSE; break;
+    }
+    if (damage > 0) {
+        star.defenseHP = Math.max(0, star.defenseHP - damage);
+        const newLevel = Math.ceil(star.defenseHP / COMBAT_CONSTANTS.DEFENSE_HP_PER_LEVEL);
+        if (newLevel < star.defenseLevel) {
+            star.defenseLevel = newLevel;
+            this._pendingSaves.stars.add(star);  // LISÄÄ TÄMÄ
+            
+            // Lähetä defense damage heti
+            const damageDiff = [{ action: 'DEFENSE_DAMAGED', starId: star._id, newLevel: newLevel }];
+            if (this.io) {
+                this.io.to(this.gameId.toString()).emit("game_diff", damageDiff);
+            }
+            diff.push(...damageDiff);
+        }
+        return true;
+    }
+    return false;
+}
+
+  async _combatPhase(factionShips, shipType, star, diff) {
+      const factions = Object.keys(factionShips);
+      for (const attackerFaction of factions) {
+        const attackers = factionShips[attackerFaction].filter(s => 
+          s.type === shipType && this.state.ships.some(ls => ls._id.equals(s._id))
+        );
+        
+        for (const attacker of attackers) {
+          // AINA yritä vahingoittaa PD:tä ENSIN, jos se kuuluu viholliselle
+          if (star.defenseHP > 0 && star.ownerId?.toString() !== attacker.ownerId?.toString()) {
+            this._tryDamagePD(star, attacker, diff);
+            // ÄLÄ SKIPPAA - anna aluksen ampua myös vihollisaluksia!
+          }
+          
+          // Sitten ammu vihollisaluksia normaalisti
+          const potentialTargets = [];
+          for (const defenderFaction of factions) {
+            if (attackerFaction === defenderFaction) continue;
+            potentialTargets.push(...factionShips[defenderFaction]);
+          }
+          
+          if (potentialTargets.length === 0) continue;
+
+          // Normaali alus vs alus taistelu...
+          if (shipType === 'Cruiser') {
+              const target = this._pickTarget(potentialTargets, s => s.type === 'Destroyer') || 
+                            this._pickTarget(potentialTargets);
+              if(target) await this._applyDamage(target, target.type === 'Fighter' ? 1 : 3, diff);
+          } else if (shipType === 'Destroyer') {
+              for(let i = 0; i < 2; i++) {
+                  const target = this._pickTarget(potentialTargets, s => s.type === 'Fighter') || 
+                                this._pickTarget(potentialTargets);
+                  if(target) await this._applyDamage(target, 1, diff);
+              }
+          } else if (shipType === 'Fighter') {
+              const target = this._pickTarget(potentialTargets);
+              if(target) {
+                const damage = target.type === 'Cruiser' ? 1.35 : 1;
+                await this._applyDamage(target, damage, diff);
+              }
+          }
+        }
+      }
+  }
+
+  async _resolveMelee(factionShips, diff) {
+      const factions = Object.keys(factionShips);
+      for (let i = 0; i < factions.length; i++) {
+          for (let j = i + 1; j < factions.length; j++) {
+              const faction1 = factions[i];
+              const faction2 = factions[j];
+              const ships1 = factionShips[faction1].filter(s => this.state.ships.some(ls => ls._id.equals(s._id)));
+              const ships2 = factionShips[faction2].filter(s => this.state.ships.some(ls => ls._id.equals(s._id)));
+              if (ships1.length > 0 && ships2.length > 0) {
+                  await this._applyDamage(ships1[0], 1, diff);
+                  await this._applyDamage(ships2[0], 1, diff);
+              }
+          }
+      }
+  }
+  
+  async _resolvePDOnlyBattle(star, attackers, diff) {
+    for (const ship of attackers) {
+      this._tryDamagePD(star, ship, diff);
+    }
+  }
+
+  // Jos laiva tuhoutuu, poistetaan
+  async _destroyShip(shipId, diff) {
+    const shipIndex = this.state.ships.findIndex(s => s._id.toString() === shipId.toString());
+    if (shipIndex === -1) return;
+
+    const [ship] = this.state.ships.splice(shipIndex, 1);
+    
+    // Merkitse poistettavaksi
+    this._pendingSaves.deletedShips = this._pendingSaves.deletedShips || [];
+    this._pendingSaves.deletedShips.push(shipId);
+
+    // Lähetä diff HETI clientille
+    const destroyDiff = [{
+        action: 'SHIP_DESTROYED',
+        shipId: shipId,
+        ownerId: ship.ownerId,
+        type: ship.type,
+        position: ship.position
+    }];
+    
+    if (this.io) {
+        this.io.to(this.gameId.toString()).emit("game_diff", destroyDiff);
+    }
+    
+    diff.push(...destroyDiff);
+  }
+
+  /* ---------------- FLUSH + BROADCAST ----- */
+    async _flush(diff) {
+        if (!this.io || !diff.length) return;
+        
+        // Puskuroi diffit
+        this._diffBuffer.push(...diff);
+        
+        // Lähetä vain jos tarpeeksi aikaa kulunut
+        const now = Date.now();
+        if (now - this._lastDiffSent >= this.DIFF_SEND_INTERVAL) {
+            if (this._diffBuffer.length > 0) {
+                console.log(`[SEND-BATCH] ${this._diffBuffer.length} diffs`);
+                this.io.to(this.gameId.toString()).emit("game_diff", this._diffBuffer);
+                this._diffBuffer = [];
+                this._lastDiffSent = now;
+            }
+        }
+    }
+
+  
 
   /* ---------------- HELPERS --------------- */
   _humanId(players) { return (players || []).find(p => !p.isAI)?._id?.toString() ?? ""; }
@@ -941,30 +1676,7 @@ async _advanceConquest(diff) {
       ecoTick: this._ecoTick   // Debug: näe economy tick
     };
   }
-      /**
-     * Poistaa aluksen pelistä ja lisää poistotapahtuman diff-taulukkoon.
-     * @param {string} shipId - Tuhottavan aluksen ID.
-     * @param {Array} diff - Viitattava diff-taulukko, johon tapahtuma lisätään.
-     */
-    async _destroyShip(shipId, diff) {
-        const shipIndex = this.state.ships.findIndex(s => s._id.toString() === shipId.toString());
-        if (shipIndex === -1) return; // Alus on jo poistettu
-
-        const [ship] = this.state.ships.splice(shipIndex, 1);
-        
-        // Poista myös tietokannasta
-        await Ship.findByIdAndDelete(shipId);
-
-        // Lisää tapahtuma clientille lähetettävään diffiin
-        diff.push({
-            action: 'SHIP_DESTROYED',
-            shipId: shipId,
-            ownerId: ship.ownerId,
-            position: ship.position // Sijainti räjähdysefektiä varten
-        });
-
-        console.log(`[COMBAT] Ship ${shipId} destroyed.`);
-    }
+    
 }
 
 module.exports = GameManager;

@@ -135,7 +135,11 @@ class AIController {
     /* ---------- 2. konfiguraatiot ---------- */
     this.infra        = config.infraLimits;
     this.humanId      = config.playerId;    // ihmispelaajan id
-    this.speeds       = config.speeds;
+    this.speeds       = config.speeds || {  
+        fast: 60,
+        slow: 6,
+        fighterSlow: 12
+    };
     this.FLEET_TARGET = config.fleetTarget || 8;
 
     /* ---------- 3. ***JAETAAN ALOITUSPÄÄOMA*** ---------- */
@@ -358,16 +362,18 @@ class AIController {
   }
 
   _fleetAround(star) {
-    const ships = (star.orbitingShipIds||[])
-      .map(id=>this._ship(id))
-      .filter(Boolean);
+      const ships = this.ships.filter(s => 
+        s.parentStarId?.toString() === star._id.toString() &&
+        s.ownerId?.toString() === this.aiId &&
+        (s.state === 'orbiting' || s.state === 'conquering')
+      );
 
-    return {
-      fighters  : ships.filter(s=>s.type==='Fighter').length,
-      destroyers: ships.filter(s=>s.type==='Destroyer').length,
-      cruisers  : ships.filter(s=>s.type==='Cruiser').length,
-      total     : ships.length
-    };
+      return {
+        fighters  : ships.filter(s=>s.type==='Fighter').length,
+        destroyers: ships.filter(s=>s.type==='Destroyer').length,
+        cruisers  : ships.filter(s=>s.type==='Cruiser').length,
+        total     : ships.length
+      };
   }
 
   _shipPriorities(star, flt) {
@@ -399,85 +405,114 @@ class AIController {
   /*  DEFENSIVE REDEPLOYMENT                                              */
   /* ==================================================================== */
   _defend(myStars) {
-    const acts=[];
-    const byId=Object.fromEntries(this.ships.map(s=>[s.id,s]));
+      const acts=[];
 
-    myStars.forEach(star=>{
-      const hostileIds=(star.orbitingShipIds||[])
-        .filter(id=>byId[id]?.ownerId?.toString()!==this.aiId);
-      if(!hostileIds.length) return;
+      myStars.forEach(star=>{
+        // Käytä suoraan ships-taulukkoa
+        const hostileShips = this.ships.filter(s =>
+          s.parentStarId?.toString() === star._id.toString() &&
+          s.ownerId?.toString() !== this.aiId &&
+          (s.state === 'orbiting' || s.state === 'conquering')
+        );
+        
+        if(!hostileShips.length) return;
 
-      const friendlyIds=(star.orbitingShipIds||[])
-        .filter(id=>byId[id]?.ownerId?.toString()===this.aiId);
+        const friendlyShips = this.ships.filter(s =>
+          s.parentStarId?.toString() === star._id.toString() &&
+          s.ownerId?.toString() === this.aiId &&
+          (s.state === 'orbiting' || s.state === 'conquering')
+        );
 
-      let gap=starThreatScore(
-        star, hostileIds.map(id=>byId[id])
-      ) - friendlyIds.map(id=>byId[id])
-          .reduce((s,sh)=>s+shipPower(sh),0);
+        let gap = starThreatScore(star, hostileShips) - 
+                  friendlyShips.reduce((s,sh)=>s+shipPower(sh),0);
 
-      if(gap<=0) return;
+        if(gap<=0) return;
 
-      const cand=this.ships.filter(
-        sh=>sh.ownerId?.toString()===this.aiId &&
-            sh.state==='orbiting' &&
-            sh.parentStarId &&
-            sh.parentStarId!==star.id
-      ).sort((a,b)=>
-        distance3D(this._starById(a.parentStarId).position,star.position) -
-        distance3D(this._starById(b.parentStarId).position,star.position)
-      );
+        // Etsi lähimmät omat alukset
+        const candidates = this.ships.filter(sh =>
+          sh.ownerId?.toString() === this.aiId &&
+          sh.state === 'orbiting' &&
+          sh.parentStarId?.toString() !== star._id.toString()
+        ).sort((a,b) => {
+          const starA = this._starById(a.parentStarId);
+          const starB = this._starById(b.parentStarId);
+          if (!starA || !starB) return 0;
+          return distance3D(starA.position, star.position) -
+                distance3D(starB.position, star.position);
+        });
 
-      for(const sh of cand){
-        gap-=shipPower(sh);
-        acts.push({ action:'MOVE_SHIP',
-                    shipId:sh.id,
-                    fromStarId:sh.parentStarId,
-                    toStarId:star.id });
-        if(gap<=0) break;
-      }
-    });
-    return acts;
+        for(const sh of candidates){
+          gap -= shipPower(sh);
+          acts.push({ 
+            action: 'MOVE_SHIP',
+            shipId: sh._id.toString(),
+            fromStarId: sh.parentStarId.toString(),
+            toStarId: star._id.toString()
+          });
+          if(gap<=0) break;
+        }
+      });
+      return acts;
   }
 
   /* ==================================================================== */
   /*  EXPANSION                                                           */
   /* ==================================================================== */
   _expand(myStars){
-    const acts=[];
-    const NONLANE_FACTOR=1.35, STARLANE_BONUS=8;
+      const acts=[];
+      const NONLANE_FACTOR=1.35, STARLANE_BONUS=8;
 
-    myStars.forEach(star=>{
-      const readyIds=(star.orbitingShipIds||[]).filter(id=>{
-        const s=this._ship(id);
-        return s && s.ownerId?.toString()===this.aiId && s.state==='orbiting';
+      myStars.forEach(star=>{
+        // MUUTOS: Käytä suoraan ships-taulukkoa
+        const readyShips = this.ships.filter(s => 
+          s.parentStarId?.toString() === star._id.toString() &&
+          s.ownerId?.toString() === this.aiId && 
+          s.state === 'orbiting'
+        );
+        
+        // console.log(`[AI] ${readyShips.length} ships ready at ${star.name}`);
+        
+        if(readyShips.length < 1) return; // Debug: 1 alus riittää
+
+        let target=null,best=-Infinity;
+        this.stars.filter(s=>s.ownerId?.toString()!==this.aiId && !s.isBeingConqueredBy)
+          .forEach(tg=>{
+            // Korjaa myös connections-vertailu
+            const lane = (star.connections || []).some(c => c.toString() === tg._id.toString());
+            const dist = distance3D(star.position, tg.position);
+            let sc = 1000/(dist*(lane?1:NONLANE_FACTOR)+25);
+            if(lane) sc += STARLANE_BONUS;
+            sc += !tg.ownerId ? 10 : (tg.ownerId?.toString()===this.humanId ? 3 : 5);
+            
+ 
+            
+            if(sc > best) { best=sc; target=tg; }
+          });
+          
+        if(!target) {
+          console.log(`[AI] No target found from ${star.name}`);
+          return;
+        }
+
+        const firstStrike = target.defenseLevel * 3;
+        const fighters = readyShips.filter(s => s.type === 'Fighter').length;
+        if(fighters && firstStrike >= readyShips.length) {
+          console.log(`[AI] Skipping attack - PD would destroy all ships`);
+          return;
+        }
+
+        // MUUTOS: Käytä readyShips suoraan
+        readyShips.slice(0, Math.min(this.FLEET_TARGET, readyShips.length))
+          .forEach(ship => {
+            acts.push({ 
+              action: 'MOVE_SHIP',
+              shipId: ship._id.toString(),
+              fromStarId: star._id.toString(),
+              toStarId: target._id.toString()
+            });
+          });
       });
-      if(readyIds.length<3) return;
-
-      let target=null,best=-Infinity;
-      this.stars.filter(s=>s.ownerId?.toString()!==this.aiId && !s.isBeingConqueredBy)
-        .forEach(tg=>{
-          const lane=star.connections.includes(tg.id);
-          const dist=distance3D(star.position,tg.position);
-          let sc=1000/(dist*(lane?1:NONLANE_FACTOR)+25);
-          if(lane) sc+=STARLANE_BONUS;
-          sc+= tg.ownerId===undefined?10:(tg.ownerId?.toString()===this.humanId?3:5);
-          if(sc>best){best=sc;target=tg;}
-        });
-      if(!target) return;
-
-      const firstStrike=target.defenseLevel*3;
-      const fightersReady=readyIds.map(id=>this._ship(id)).filter(s=>s.type==='Fighter').length;
-      if(fightersReady && firstStrike>=readyIds.length) return;
-
-      readyIds.slice(0,Math.min(this.FLEET_TARGET,readyIds.length))
-        .forEach(id=>{
-          acts.push({ action:'MOVE_SHIP',
-                      shipId:id,
-                      fromStarId:star.id,
-                      toStarId:target.id });
-        });
-    });
-    return acts;
+      return acts;
   }
 
   /* ==================================================================== */

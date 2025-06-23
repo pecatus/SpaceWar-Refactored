@@ -55,7 +55,9 @@ let gameInProgress = false;
 let currentGameId = null;
 let selectedStar = null;
 let GAME_SPEED = 1;
+window.GAME_SPEED = GAME_SPEED;
 let isPaused = false;
+window.isPaused = false;
 
 // UI State
 let uiState = 'startScreen'; // 'startScreen', 'playing', 'paused'
@@ -256,12 +258,20 @@ function setupEventListeners() {
     
     // Ship command events
     window.addEventListener('shipCommand', (event) => {
-        socket.emit('player_command', event.detail);
+        const command = {
+            ...event.detail,
+            gameId: currentGameId  
+    };
+        socket.emit('player_command', command);
     });
 
     // Ship arrival events
     window.addEventListener('shipArrived', (event) => {
-        socket.emit('player_command', event.detail);
+        const command = {
+            ...event.detail,
+            gameId: currentGameId  // LISÄÄ TÄMÄ!
+    };
+        socket.emit('player_command', command);
     });
 
     // Keyboard events
@@ -271,6 +281,7 @@ function setupEventListeners() {
             // Jos olemme pelitilassa, siirry paussivalikkoon (eli päävalikkoon)
             if (uiState === 'playing') {
                 pauseGame();        // Kerro serverille, että peli on paussilla
+                window.isPaused = true;
                 uiState = 'paused'; // Muuta clientin tilaa
                 updateUIState();    // Päivitä UI näyttämään päävalikko
             }
@@ -290,8 +301,10 @@ function setupEventListeners() {
                 // Vaihda paussitilan ja normaalitilan välillä
                 if (isPaused) {
                     resumeGame();
+                    window.isPaused = false; 
                 } else {
                     pauseGame();
+                    window.isPaused = true; 
                 }
             }
         }
@@ -322,6 +335,7 @@ function setupEventListeners() {
                 }
             } else {
                 GAME_SPEED = Number(val);
+                window.GAME_SPEED = GAME_SPEED;
                 btn.classList.add('active');
                 
                 if (isPaused) {
@@ -386,9 +400,37 @@ function setupAIPlayerSettings() {
 /* ========================================================================== */
 /*  GAME LIFECYCLE                                                            */
 /* ========================================================================== */
+function resetAllProgressBars() {
+    // Nollaa kaikki planetary progress barit
+    document.querySelectorAll('.button-progress-bar').forEach(bar => {
+        bar.style.width = '0%';
+    });
+    
+    // Nollaa ship progress barit
+    ['Fighter', 'Destroyer', 'Cruiser', 'SlipstreamFrigate'].forEach(type => {
+        const bar = document.getElementById(`progress-${type.replace(/ /g, '')}`);
+        if (bar) bar.style.width = '0%';
+    });
+    
+    // Nollaa total progress barit
+    if (planetaryQueueTotalProgressFill) {
+        planetaryQueueTotalProgressFill.style.width = '0%';
+        planetaryQueueTotalProgressText.textContent = 'Idle';
+    }
+    
+    if (shipQueueTotalProgressFill) {
+        shipQueueTotalProgressFill.style.width = '0%';
+        shipQueueTotalProgressText.textContent = 'Idle';
+    }
+}
 
 function resetClientState() {
     console.log('[RESET] Nollataan clientin pelitila...');
+
+    isPaused = false;
+    window.isPaused = false;
+    GAME_SPEED = 1;
+    window.GAME_SPEED = 1;
 
     // Pysäytetään vanha interpolointiajastin
     if (progressInterpolationInterval) {
@@ -407,6 +449,10 @@ function resetClientState() {
     selectedStar = null;
     playerResources = { credits: 1000, minerals: 500 }; // Palauta alkuarvoihin
 
+    // Tyhjennetään planetary menun construction progressbarit
+    constructionProgressData.clear();
+    resetAllProgressBars();  // Nollaa visuaaliset progress barit
+
     // 3. Piilota UI-elementit
     hidePlanetMenu();
     const selectedUnitsPanel = document.getElementById('selectedUnitsPanel');
@@ -417,6 +463,17 @@ function resetClientState() {
 
 async function handleStartGame() {
     try {
+        // Varmista että peli ei ala pausella
+        isPaused = false;
+        window.isPaused = false;
+        GAME_SPEED = 1;
+        window.GAME_SPEED = 1;
+        updatePauseUI(); // Päivitä pause UI pois
+        
+        // Reset speed buttons
+        document.querySelectorAll('#speedPanel button').forEach(btn => btn.classList.remove('active'));
+        document.querySelector('#speedPanel button[data-speed="1"]')?.classList.add('active');
+
         // 1. Siivoa aina vanha clientin tila pois.
         resetClientState();
 
@@ -527,6 +584,7 @@ function pauseGame() {
     if (currentGameId) {
         socket.emit('pause_game', { gameId: currentGameId });
         isPaused = true;
+        window.isPaused = true;
         updatePauseUI();
     }
 }
@@ -578,6 +636,7 @@ function resumeGame() {
     if (currentGameId) {
         socket.emit('resume_game', { gameId: currentGameId });
         isPaused = false;
+        window.isPaused = false;
         updatePauseUI();
     }
 }
@@ -952,8 +1011,9 @@ function startProgressInterpolation() {
 
 function interpolateProgress(data) {
     const now = Date.now();
-    const elapsed = (now - data.lastUpdate) / 1000 * GAME_SPEED;; // Sekunteina * game_speed
-    
+    const currentSpeed = isPaused ? 0 : GAME_SPEED;
+    const elapsed = (now - data.lastUpdate) / 1000 * currentSpeed;
+
     // Planetary queue
     if (data.planetary && data.planetary.length > 0) {
         const item = data.planetary[0];
@@ -1294,6 +1354,13 @@ function canAfford(cost) {
 function updateUIFromDiff(diff) {
     diff.forEach(action => {
         switch (action.action) {
+            case 'TICK_INFO':
+                // Synkronoi serverin nopeus
+                if (action.speed !== window.SERVER_SPEED) {
+                    window.SERVER_SPEED = action.speed;
+                    console.log(`[SYNC] Server speed: ${action.speed}x`);
+                }
+                break;
             case 'CONSTRUCTION_PROGRESS':
                 if (selectedStar && selectedStar._id === action.starId) {
                     updateConstructionProgress(action);
@@ -1378,15 +1445,41 @@ function updateUIFromDiff(diff) {
                 }
                 break; 
 
+            case 'SHIP_ARRIVED': {
+                const ship = gameState?.ships?.find(s => s._id === action.shipId);
+                if (ship) {
+                    ship.state        = 'orbiting';
+                    ship.parentStarId = action.atStarId;
+                    ship.targetStarId = null;
+                }
+                break;
+            }
+
+            case 'DEFENSE_DAMAGED':
+                console.log(`⚔️ Defense damaged at star ${action.starId}, new level: ${action.newLevel}`);
+                // Päivitä UI jos valittu tähti
+                if (selectedStar && selectedStar._id === action.starId) {
+                    selectedStar.defenseLevel = action.newLevel;
+                    showPlanetMenu(selectedStar);
+                }
+            break;
+
             case 'SHIP_DESTROYED':
+                console.log(`💥 Ship destroyed: ${action.shipId}`);
+                // Scene.js hoitaa visuaalisen päivityksen ja selectedShips-käsittelyn
+                
                 if (gameState && gameState.ships) {
                     const initialCount = gameState.ships.length;
-                    gameState.ships = gameState.ships.filter(ship => ship._id.toString() !== action.shipId.toString());
+                    gameState.ships = gameState.ships.filter(ship => 
+                        ship._id.toString() !== action.shipId.toString()
+                    );
                     const finalCount = gameState.ships.length;
                     if (initialCount > finalCount) {
-                         console.log(`[CLIENT-STATE] Poistettu alus ${action.shipId}. Aluksia jäljellä: ${finalCount}`);
+                        console.log(`[CLIENT-STATE] Poistettu alus ${action.shipId}. Aluksia jäljellä: ${finalCount}`);
                     }
                 }
+                
+                updateResourceDisplay(); // Päivitä upkeep
                 break;
                 
             case 'STAR_UPDATED':

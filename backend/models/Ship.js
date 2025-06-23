@@ -60,6 +60,28 @@ const shipSchema = new Schema(
       index: true
     },
 
+    speed: {
+        type: Number,
+        default: 6  // SHIP_SPEEDS.slow
+    },
+    
+    departureStarId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Star',
+        default: null
+    },
+    
+    movementTicks: {
+        type: Number,
+        default: 0
+    },
+
+    ticksToArrive: {               // montako tikkiä on vielä matkaa
+       type: Number,
+       default: 1,
+       min: 1
+   },
+
     /* Opt. pelimoottori voi päivitellä 3D-koordinaatit
        → debug-telemetriaa tai spektator-klienttiä varten. */
     position: {
