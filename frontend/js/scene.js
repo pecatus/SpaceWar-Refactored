@@ -29,6 +29,9 @@ const shipsById = new Map();
 const starConnections = [];
 const starGlows = [];
 
+// Nopea haku aluksille tähden perusteella
+const shipsByStarClient = new Map(); // starId -> Set<shipMesh>
+
 // Valinta ja interaktio
 let selectedStar = null;
 let hoveredStar = null;
@@ -67,8 +70,28 @@ const combatEffects = new Map();
 const activeCombatStars = new Set(); // Tähdet joissa on aktiivinen taistelu
 const starsToCheck = new Set(); // Tähdet joita pitää tarkistaa
 let combatCheckTimer = 0; // Tarkistetaan vain muutaman framen välein
+let globalLaserPool = null;
 
+// Combat effect limits
+const MAX_ACTIVE_COMBAT_EFFECTS = 10;
 
+// FPS ja frame time laskuri
+let fpsStats = {
+    frameCount: 0,
+    lastTime: performance.now(),
+    fps: 0,
+    frameTime: 0,
+    lastFrameTime: performance.now()
+};
+
+let frameSkipCounter = 0; // LISÄÄ TÄMÄ RIVI
+
+let performanceMonitor = {
+    lastCleanup: Date.now(),
+    cleanupInterval: 5000, // MUUTOS: 30s -> 5s
+    shipCount: 0,
+    effectCount: 0
+};
 
 /* ========================================================================== */
 /*  TEKSTUURIT JA MATERIAALIT                                                 */
@@ -233,147 +256,274 @@ const MAT_BIG = buildNebulaMaterials(0.18);
 let mineIndicatorTexture, popIndicatorTexture, shipyardIndicatorTexture;
 let mineSpriteMaterial, popSpriteMaterial, shipyardSpriteMaterial;
 
+// apufunktio rakenteiden debuggaamiseen:
+function debugShipsByStarClient() {
+    console.log('[DEBUG] Ships by star:');
+    shipsByStarClient.forEach((ships, starId) => {
+        const star = starsById.get(starId);
+        const starName = star?.userData?.starData?.name || 'Unknown';
+        console.log(`  ${starName}: ${ships.size} ships`);
+    });
+}
+
 /* ========================================================================== */
 /*  TAISTELUEFEKTIT PELAAJAN VIIHDYTTÄMISEKSI KUNNES RESULT TAISTELUSTA       */
 /* ========================================================================== */
+
+class ExplosionPool {
+    constructor(scene, maxExplosions = 50) {
+        this.scene = scene;
+        this.available = [];
+        this.active = [];
+        
+        // Luo spark-materiaali
+        this.sparkMaterial = new THREE.PointsMaterial({
+            map: SPARK_TEX, // Käytä olemassa olevaa tekstuuria
+            size: 3,
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            vertexColors: true // Mahdollistaa eri väriset räjähdykset
+        });
+        
+        // Esiluodaan räjähdysgeometriat
+        for (let i = 0; i < maxExplosions; i++) {
+            const particleCount = 12; // Vähemmän partikkeleita per räjähdys
+            const geometry = new THREE.BufferGeometry();
+            
+            // Positions
+            const positions = new Float32Array(particleCount * 3);
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            
+            // Colors
+            const colors = new Float32Array(particleCount * 3);
+            geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            
+            const points = new THREE.Points(geometry, this.sparkMaterial);
+            points.visible = false;
+            this.scene.add(points);
+            
+            this.available.push({
+                points: points,
+                velocities: new Array(particleCount),
+                life: 0,
+                ttl: 0.8,
+                active: false
+            });
+            
+            // Alusta velocity-array
+            for (let j = 0; j < particleCount; j++) {
+                this.available[i].velocities[j] = new THREE.Vector3();
+            }
+        }
+    }
+    
+    spawn(position, type = 'small') {
+        const explosion = this.available.pop();
+        if (!explosion) return null; // Pool täynnä
+        
+        const { points, velocities } = explosion;
+        const positions = points.geometry.attributes.position.array;
+        const colors = points.geometry.attributes.color.array;
+        const particleCount = velocities.length;
+        
+        // Aseta räjähdyksen parametrit tyypin mukaan
+        let speed, color, size;
+        switch(type) {
+            case 'small':
+                speed = 15;
+                color = new THREE.Color(1, 0.8, 0.3); // Oranssi
+                size = 2;
+                break;
+            case 'medium':
+                speed = 25;
+                color = new THREE.Color(1, 0.5, 0.2); // Punainen
+                size = 3;
+                break;
+            case 'spark':
+                speed = 10;
+                color = new THREE.Color(1, 1, 0.8); // Valkoinen
+                size = 1.5;
+                break;
+        }
+        
+        points.material.size = size;
+        
+        // Alusta partikkelit
+        for (let i = 0; i < particleCount; i++) {
+            // Kaikki alkavat samasta pisteestä
+            positions[i * 3] = 0;
+            positions[i * 3 + 1] = 0;
+            positions[i * 3 + 2] = 0;
+            
+            // Satunnainen suunta
+            velocities[i].set(
+                (Math.random() - 0.5),
+                (Math.random() - 0.5),
+                (Math.random() - 0.5)
+            ).normalize().multiplyScalar(speed * (0.5 + Math.random() * 0.5));
+            
+            // Väri (vähän vaihtelua)
+            colors[i * 3] = color.r * (0.8 + Math.random() * 0.2);
+            colors[i * 3 + 1] = color.g * (0.8 + Math.random() * 0.2);
+            colors[i * 3 + 2] = color.b * (0.8 + Math.random() * 0.2);
+        }
+        
+        points.geometry.attributes.position.needsUpdate = true;
+        points.geometry.attributes.color.needsUpdate = true;
+        
+        points.position.copy(position);
+        points.visible = true;
+        
+        explosion.life = 0;
+        explosion.ttl = 0.6 + Math.random() * 0.2; // Vähän vaihtelua
+        explosion.active = true;
+        
+        this.active.push(explosion);
+        return explosion;
+    }
+    
+    update(delta) {
+        for (let i = this.active.length - 1; i >= 0; i--) {
+            const explosion = this.active[i];
+            if (!explosion.active) continue;
+            
+            explosion.life += delta;
+            const progress = explosion.life / explosion.ttl;
+            
+            if (progress >= 1) {
+                // Palauta pooliin
+                explosion.points.visible = false;
+                explosion.active = false;
+                this.available.push(explosion);
+                this.active.splice(i, 1);
+                continue;
+            }
+            
+            // Päivitä opacity
+            explosion.points.material.opacity = 1 - progress;
+            
+            // Päivitä positiot
+            const positions = explosion.points.geometry.attributes.position.array;
+            const velocities = explosion.velocities;
+            
+            for (let j = 0; j < velocities.length; j++) {
+                positions[j * 3] += velocities[j].x * delta;
+                positions[j * 3 + 1] += velocities[j].y * delta;
+                positions[j * 3 + 2] += velocities[j].z * delta;
+                
+                // Gravity effect
+                velocities[j].y -= 10 * delta;
+            }
+            
+            explosion.points.geometry.attributes.position.needsUpdate = true;
+        }
+    }
+    
+    cleanup() {
+        this.available.forEach(exp => {
+            this.scene.remove(exp.points);
+            exp.points.geometry.dispose();
+        });
+        this.active.forEach(exp => {
+            this.scene.remove(exp.points);
+        });
+        this.sparkMaterial.dispose();
+    }
+}
+
+
+// YKSINKERTAISTETTU CombatEffectGroup ilman lasereita
 class CombatEffectGroup {
     constructor(star, scene) {
         this.star = star;
         this.scene = scene;
-        this.lasers = [];
         this.active = true;
+        this.explosionTimer = 0;
         this.createEffects();
     }
     
     createEffects() {
         // Punainen combat-rengas planeetan ympärille
-        const ringGeometry = new THREE.RingGeometry(25, 30, 64);
+        const ringGeometry = new THREE.RingGeometry(5, 15, 24); // Vähemmän segmenttejä
         const ringMaterial = new THREE.MeshBasicMaterial({
             color: 0xff0000,
             transparent: true,
-            opacity: 0.3,
+            opacity: 0.1,
             side: THREE.DoubleSide
         });
         this.combatRing = new THREE.Mesh(ringGeometry, ringMaterial);
         this.combatRing.position.copy(this.star.position);
         this.combatRing.rotation.x = Math.PI / 2;
         this.scene.add(this.combatRing);
-        
-        // Laser-viivat alusten välillä
-        this.laserMaterial = new THREE.LineBasicMaterial({
-            color: 0xff0000,
-            transparent: true,
-            opacity: 0.8,
-            linewidth: 2
-        });
-        
-        // LISÄÄ: Varoitusteksti
-        const canvas = document.createElement('canvas');
-        canvas.width = 256;
-        canvas.height = 64;
-        const ctx = canvas.getContext('2d');
-        ctx.fillStyle = 'rgba(255, 0, 0, 0.8)';
-        ctx.font = 'bold 32px Arial';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('COMBAT', 128, 32);
-        
-        const texture = new THREE.CanvasTexture(canvas);
-        const spriteMaterial = new THREE.SpriteMaterial({
-            map: texture,
-            transparent: true,
-            opacity: 0.9
-        });
-        
-        this.combatLabel = new THREE.Sprite(spriteMaterial);
-        this.combatLabel.scale.set(30, 7.5, 1);
-        this.combatLabel.position.copy(this.star.position);
-        this.combatLabel.position.y += 20;
-        this.scene.add(this.combatLabel);
     }
     
     update(delta, ships) {
         if (!this.active) return;
         
-        // Pyöritä combat-rengasta
-        this.combatRing.rotation.z += delta * 0.5;
-        
         // Pulssaa opacity
-        const pulse = Math.sin(Date.now() * 0.003) * 0.2 + 0.5;
+        const pulse = Math.sin(Date.now() * 0.003) * 0.3 + 0.3;
         this.combatRing.material.opacity = pulse;
         
-        // Animoi label
-        if (this.combatLabel) {
-            this.combatLabel.position.y = this.star.position.y + 20 + Math.sin(Date.now() * 0.002) * 2;
-            this.combatLabel.material.opacity = 0.7 + Math.sin(Date.now() * 0.004) * 0.3;
-        }
+        // Räjähdykset alusten määrän mukaan
+        this.explosionTimer += delta;
         
-        // Päivitä laserit
-        this.updateLasers(ships);
-        
-        // Satunnaiset pienet räjähdykset
-        if (Math.random() < 0.05 && ships.length > 2) { // Vähemmän räjähdyksiä
-            this.spawnSmallExplosion();
-        }
-    }
-    
-    updateLasers(ships) {
-        // Poista vanhat laserit
-        this.lasers.forEach(laser => this.scene.remove(laser));
-        this.lasers = [];
-        
-        // Luo uudet satunnaiset laserit alusten välille
-        const shipArray = Array.from(ships);
-        const maxLasers = Math.min(5, Math.floor(shipArray.length / 2)); // Enemmän lasereita
-        
-        for (let i = 0; i < maxLasers; i++) {
-            if (Math.random() < 0.4) continue; // 60% todennäköisyys ampua
+        if (ships.length > 0) {
+            // Räjähdysten tiheys riippuu alusten määrästä
+            const explosionRate = 0.2 - Math.min(0.15, ships.length * 0.02); // 0.05-0.2 sekuntia
             
-            const from = shipArray[Math.floor(Math.random() * shipArray.length)];
-            const to = shipArray[Math.floor(Math.random() * shipArray.length)];
-            
-            if (from !== to && from && to) {
-                const geometry = new THREE.BufferGeometry().setFromPoints([
-                    from.position,
-                    to.position
-                ]);
+            if (this.explosionTimer > explosionRate) {
+                this.explosionTimer = 0;
                 
-                // Vaihtele laser-väriä
-                const laserColor = Math.random() > 0.5 ? 0xff0000 : 0xff6600;
-                const laserMat = new THREE.LineBasicMaterial({
-                    color: laserColor,
-                    transparent: true,
-                    opacity: 0.9,
-                    linewidth: 2
-                });
+                // 1-3 räjähdystä kerralla
+                const explosionCount = Math.min(3, 1 + Math.floor(ships.length / 5));
                 
-                const laser = new THREE.Line(geometry, laserMat);
-                this.scene.add(laser);
-                this.lasers.push(laser);
-                
-                // Poista laser 150ms kuluttua
-                setTimeout(() => {
-                    this.scene.remove(laser);
-                    const idx = this.lasers.indexOf(laser);
-                    if (idx > -1) this.lasers.splice(idx, 1);
-                }, 150);
+                for (let i = 0; i < explosionCount; i++) {
+                    this.spawnCombatExplosion(ships);
+                }
             }
         }
     }
     
-    spawnSmallExplosion() {
-        // Pieni räjähdys satunnaisessa kohdassa planeetan lähellä
-        const angle = Math.random() * Math.PI * 2;
-        const radius = 20 + Math.random() * 15;
-        const height = (Math.random() - 0.5) * 10;
-        const pos = new THREE.Vector3(
-            this.star.position.x + Math.cos(angle) * radius,
-            this.star.position.y + height,
-            this.star.position.z + Math.sin(angle) * radius
-        );
+    spawnCombatExplosion(ships) {
+        let position;
         
-        // Käytä olemassa olevaa spawnExplosion funktiota
-        spawnExplosion(pos, 6); // Pienempi räjähdys
+        // 70% räjähdyksistä alusten lähellä, 30% random
+        if (Math.random() < 0.7 && ships.length > 0) {
+            // Valitse satunnainen alus
+            const ship = ships[Math.floor(Math.random() * ships.length)];
+            
+            // Räjähdys aluksen lähellä
+            const offset = new THREE.Vector3(
+                (Math.random() - 0.5) * 10,
+                (Math.random() - 0.5) * 5,
+                (Math.random() - 0.5) * 10
+            );
+            
+            position = ship.position.clone().add(offset);
+        } else {
+            // Satunnainen paikka planeetan ympärillä
+            const angle = Math.random() * Math.PI * 2;
+            const radius = 20 + Math.random() * 15;
+            const height = (Math.random() - 0.5) * 10;
+            
+            position = new THREE.Vector3(
+                this.star.position.x + Math.cos(angle) * radius,
+                this.star.position.y + height,
+                this.star.position.z + Math.sin(angle) * radius
+            );
+        }
+        
+        // Käytä explosion poolia jos käytettävissä
+        if (window.explosionPool) {
+            // Vaihtele räjähdystyyppejä
+            const types = ['small', 'small', 'medium', 'spark']; // Enemmän pieniä
+            const type = types[Math.floor(Math.random() * types.length)];
+            window.explosionPool.spawn(position, type);
+        } else {
+            // Fallback vanhaan systeemiin
+            spawnExplosion(position, 8 + Math.floor(Math.random() * 6));
+        }
     }
     
     cleanup() {
@@ -381,20 +531,9 @@ class CombatEffectGroup {
         this.scene.remove(this.combatRing);
         this.combatRing.geometry.dispose();
         this.combatRing.material.dispose();
-        
-        if (this.combatLabel) {
-            this.scene.remove(this.combatLabel);
-            this.combatLabel.material.map.dispose();
-            this.combatLabel.material.dispose();
-        }
-        
-        this.lasers.forEach(laser => {
-            this.scene.remove(laser);
-            laser.geometry.dispose();
-            laser.material.dispose();
-        });
     }
 }
+
 
 
 /* ========================================================================== */
@@ -458,6 +597,9 @@ export function initThreeIfNeeded(mountTo = document.body) {
 
     // Event listeners
     setupEventListeners();
+
+    // Viihdytysräjähdykset
+    window.explosionPool = new ExplosionPool(scene, 50);
 
     // Responsive
     window.addEventListener('resize', onWindowResize, false);
@@ -1242,6 +1384,16 @@ export function buildFromSnapshot(snap) {
         initThreeIfNeeded();
     }
     
+    if (nebulaSprites.length === 0) {
+        console.log("Recreating nebula sprites...");
+        createNebulaSprites();
+    }
+
+    // --- UUSI: TYHJENNÄ HAKURAKENNE ---
+    shipsByStarClient.clear();
+    console.log("[TRACKING] Cleared ship tracking structure");
+    // --- PÄIVITYS PÄÄTTYY ---
+
     if (snap.stars) {
         spawnStars(snap.stars);
         createStarlanes(snap.stars);
@@ -1249,6 +1401,16 @@ export function buildFromSnapshot(snap) {
     
     if (snap.ships) {
         spawnShips(snap.ships);
+
+        // --- UUSI: VARMISTA ETTÄ KAIKKI ALUKSET ON HAKURAKENTEESSA ---
+        console.log(`[TRACKING] Initialized tracking for ${shipsById.size} ships`);
+        let trackedCount = 0;
+        shipsByStarClient.forEach((ships, starId) => {
+            trackedCount += ships.size;
+        });
+        console.log(`[TRACKING] Total tracked ships: ${trackedCount}`);
+        // --- PÄIVITYS PÄÄTTYY ---
+    
     }
     
     console.log("Scene built from snapshot");
@@ -1484,10 +1646,21 @@ function spawnShips(shipList) {
             isSelected: false,
             clickTarget: clickTarget
         };
-        
+
         scene.add(shipMesh);
         scene.add(clickTarget);
         shipsById.set(shipData._id, shipMesh);
+
+        // --- UUSI: LISÄÄ ALUS HAKURAKENTEESEEN ---
+        if (shipData.parentStarId) {
+            const starId = shipData.parentStarId;
+            if (!shipsByStarClient.has(starId)) {
+                shipsByStarClient.set(starId, new Set());
+            }
+            shipsByStarClient.get(starId).add(shipMesh);
+            console.log(`[SPAWN] Added ship ${shipData._id} to star ${starId} tracking`);
+        }
+
     });
 }
 
@@ -1810,6 +1983,16 @@ export function applyDiff(diffArr = []) {
                 
                 // Spawnaa alus HETI
                 spawnShips([newShipData]);
+
+                const shipMesh = shipsById.get(act.shipId);
+                if (shipMesh) {
+                    const starId = act.starId;
+                    if (!shipsByStarClient.has(starId)) {
+                        shipsByStarClient.set(starId, new Set());
+                    }
+                    shipsByStarClient.get(starId).add(shipMesh);
+                    console.log(`[SHIP-TRACKING] Added ship ${act.shipId} to star ${starId}`);
+                }
                 
                 // LISÄÄ TÄMÄ: Merkitse tähti tarkistettavaksi combatille
                 markStarForCombatCheck(act.starId);
@@ -1824,6 +2007,12 @@ export function applyDiff(diffArr = []) {
                 if (!mesh) break;
 
                 const sd = mesh.userData.shipData;
+
+                const departureStarId = sd.parentStarId || act.fromStarId;
+                if (departureStarId && shipsByStarClient.has(departureStarId)) {
+                    shipsByStarClient.get(departureStarId).delete(mesh);
+                    console.log(`[SHIP-TRACKING] Removed ship ${act.shipId} from star ${departureStarId}`);
+                }
 
                 // TALLENNA LÄHTÖTÄHTI ENNEN NOLLAUSTA
                 sd.departureStarId = sd.parentStarId || act.fromStarId;
@@ -1869,20 +2058,38 @@ export function applyDiff(diffArr = []) {
             }
 
             case 'SHIP_ARRIVED': {
-                // TÄRKEÄ: Jos alus ei ole vielä spawnattu, odota hetki
+                // Jos alus ei ole vielä spawnattu, luo se nyt
                 if (!shipsById.has(act.shipId)) {
-                    console.log(`[SHIP_ARRIVED] Ship not yet spawned: ${act.shipId}, retrying...`);
+                    console.log(`[SHIP_ARRIVED] Ship not found: ${act.shipId}, creating it now...`);
                     
-                    // Yritä uudelleen 100ms kuluttua
+                    // Luo alus minimal datalla
+                    const recoveryShipData = {
+                        _id: act.shipId,
+                        type: act.shipType || 'Fighter', // Default Fighter jos tyyppi puuttuu
+                        ownerId: act.ownerId,
+                        parentStarId: act.atStarId,
+                        state: 'orbiting'
+                    };
+                    
+                    // Spawn alus
+                    spawnShips([recoveryShipData]);
+                    
+                    // Odota hetki että mesh luodaan
                     setTimeout(() => {
-                        if (shipsById.has(act.shipId)) {
-                            applyDiff([act]); // Käsittele viesti uudelleen
-                        } else {
-                            console.warn(`[SHIP_ARRIVED] Ship still not found after retry: ${act.shipId}`);
+                        const shipMesh = shipsById.get(act.shipId);
+                        if (shipMesh) {
+                            // Päivitä tracking
+                            if (!shipsByStarClient.has(act.atStarId)) {
+                                shipsByStarClient.set(act.atStarId, new Set());
+                            }
+                            shipsByStarClient.get(act.atStarId).add(shipMesh);
+                            console.log(`[RECOVERY] Ship ${act.shipId} recovered and added to tracking`);
                         }
-                    }, 100);
-                    break;
+                    }, 10);
+                    
+                    break; // Lopeta käsittely tässä
                 }
+                
                 const shipMesh = shipsById.get(act.shipId);
                 if (!shipMesh) {
                     console.error(`[SHIP_ARRIVED] Ship mesh not found: ${act.shipId}`);
@@ -1921,10 +2128,18 @@ export function applyDiff(diffArr = []) {
                 shipMesh.lookAt(starMesh.position);
 
                 // Merkitse että alus juuri saapui
-                 shipMesh.userData.justArrived = true;
+                shipMesh.userData.justArrived = true;
+
+                // VARMISTA tracking päivitys
+                const atStarId = act.atStarId;
+                if (!shipsByStarClient.has(atStarId)) {
+                    shipsByStarClient.set(atStarId, new Set());
+                }
+                shipsByStarClient.get(atStarId).add(shipMesh);
+                console.log(`[SHIP-TRACKING] Added ship ${act.shipId} to star ${atStarId} (arrival)`);
 
                 // Merkitse tähti tarkistettavaksi
-                 markStarForCombatCheck(act.atStarId);
+                markStarForCombatCheck(act.atStarId);
                 
                 console.log(`[VISUAL] Ship ${act.shipId} placed in orbit around ${starMesh.userData.starData.name}`);
                 break;
@@ -1951,39 +2166,77 @@ export function applyDiff(diffArr = []) {
                     combatEffects.delete(act.starId);
                     starsToCheck.delete(act.starId);
                 }
+                if (act.action === 'CONQUEST_HALTED') {
+                    const starMesh = starsById.get(act.starId);
+                    if (starMesh && starMesh.userData.conquestRing) {
+                        const ring = starMesh.userData.conquestRing;
+                        
+                        // Poista glow ring ensin
+                        if (ring.userData.glowRing) {
+                            scene.remove(ring.userData.glowRing);
+                            ring.userData.glowRing.geometry.dispose();
+                            ring.userData.glowRing.material.dispose();
+                        }
+                        
+                        // Poista päärengas
+                        scene.remove(ring);
+                        ring.geometry.dispose();
+                        ring.material.dispose();
+                        delete starMesh.userData.conquestRing;
+                        starMesh.userData.conquestRing = null;
+                        
+                        console.log("🛑 Conquest halted, ring removed");
+                    }
+                }
                 break;
             }
 
             case 'SHIP_DESTROYED': {
                 const shipMesh = shipsById.get(act.shipId);
                 if (shipMesh) {
-                    // Visuaalinen räjähdysefekti
+                    const parentStarId = shipMesh.userData.shipData?.parentStarId;
+                    if (parentStarId && shipsByStarClient.has(parentStarId)) {
+                        shipsByStarClient.get(parentStarId).delete(shipMesh);
+                        console.log(`[SHIP-TRACKING] Removed destroyed ship ${act.shipId} from star ${parentStarId}`);
+                    }
                     spawnExplosion(shipMesh.position);
 
-                    // LISÄÄ TÄMÄ: Poista valittujen listalta jos oli valittuna
                     const selectedIndex = selectedShips.indexOf(shipMesh);
                     if (selectedIndex > -1) {
                         selectedShips.splice(selectedIndex, 1);
                         updateSelectedUnitsDisplay();
                     }
 
-                    // Poista 3D-malli ja sen klikkauskohde
                     scene.remove(shipMesh);
                     if (shipMesh.userData.clickTarget) {
                         scene.remove(shipMesh.userData.clickTarget);
                     }
 
-                    // Siivoa kartta muistista
+                    // --- KRIITTINEN KORJAUS TÄSSÄ ---
+                    // Vapauta geometria ja materiaali GPU:n muistista
+                    if (shipMesh.geometry) {
+                        shipMesh.geometry.dispose();
+                    }
+                    if (shipMesh.material) {
+                        // Jos materiaaleja on useita (array), käy ne läpi
+                        if (Array.isArray(shipMesh.material)) {
+                            shipMesh.material.forEach(material => material.dispose());
+                        } else {
+                            shipMesh.material.dispose();
+                        }
+                    }
+                    // --- KORJAUS PÄÄTTYY ---
+
                     shipsById.delete(act.shipId);
                     const starId = shipMesh.userData.shipData?.parentStarId;
-                     markStarForCombatCheck(starId);
+                    markStarForCombatCheck(starId);
                 }
                 break;
             }
 
             case 'CONQUEST_STARTED': {
                 const starMesh = starsById.get(act.starId);
-                if (!starMesh) break;
+                if (!starMesh || starMesh.userData.conquestRing) break;
                 
                 // Luo conquest ring
                 const conquerorColor = getPlayerColor(act.conquerorId);
@@ -1998,47 +2251,13 @@ export function applyDiff(diffArr = []) {
                 const starMesh = starsById.get(act.starId);
                 if (!starMesh || !starMesh.userData.conquestRing) break;
                 
-                // Päivitä conquest ringin koko
-                const progress = act.progress / 100; // 0-1
-                const angle = Math.max(0.01, progress * Math.PI * 2); // Vähintään pieni kaari
-                
-                // Luo uusi geometria päivitetyllä kaarella
                 const ring = starMesh.userData.conquestRing;
-                const oldGeom = ring.geometry;
-                const starRadius = starMesh.geometry.parameters.radius * (starMesh.scale.x || 1);
-                const ringInnerRadius = starRadius + 8;
-                const ringOuterRadius = starRadius + 12;
+                const progress = act.progress / 100;
                 
-                ring.geometry = new THREE.RingGeometry(
-                    ringInnerRadius,
-                    ringOuterRadius,
-                    64,
-                    1,
-                    0,
-                    angle
-                );
-                
-                oldGeom.dispose();
-                
-                // Päivitä myös glow ring
-                if (ring.userData.glowRing) {
-                    const glowOldGeom = ring.userData.glowRing.geometry;
-                    ring.userData.glowRing.geometry = new THREE.RingGeometry(
-                        ringInnerRadius - 1,
-                        ringOuterRadius + 1,
-                        64,
-                        1,
-                        0,
-                        angle
-                    );
-                    glowOldGeom.dispose();
-                    
-                    // Animoi glow opacity
-                    ring.userData.glowRing.material.opacity = 0.2 + 0.1 * Math.sin(Date.now() * 0.003);
+                // Päivitä vain shader uniform
+                if (ring.material.uniforms) {
+                    ring.material.uniforms.progress.value = progress;
                 }
-                
-                // Debug log
-                console.log(`[CONQUEST] Progress: ${act.progress}% at star ${act.starId}`);
                 break;
             }
 
@@ -2084,32 +2303,6 @@ export function applyDiff(diffArr = []) {
                 break;
             }
 
-            case 'CONQUEST_HALTED': {
-                const starMesh = starsById.get(act.starId);
-                if (!starMesh) break;
-                
-                // Poista conquest ring JA sen glow
-                if (starMesh.userData.conquestRing) {
-                    const ring = starMesh.userData.conquestRing;
-                    
-                    // Poista glow ring ensin
-                    if (ring.userData.glowRing) {
-                        scene.remove(ring.userData.glowRing);
-                        ring.userData.glowRing.geometry.dispose();
-                        ring.userData.glowRing.material.dispose();
-                    }
-                    
-                    // Poista päärengas
-                    scene.remove(ring);
-                    ring.geometry.dispose();
-                    ring.material.dispose();
-                    delete starMesh.userData.conquestRing;
-                    starMesh.userData.conquestRing = null;
-                }
-                
-                console.log("🛑 Conquest halted, ring removed");
-                break;
-            }
         }
     });
 }
@@ -2127,6 +2320,21 @@ export function startAnimateLoop() {
     function loop() {
         if (!animStarted) return; // Pysäytetään looppi, jos lippu on false
         animationFrameId = requestAnimationFrame(loop);
+
+        // FPS JA FRAME TIME LASKENTA
+        const currentTime = performance.now();
+        
+        // Frame time (ms per frame)
+        fpsStats.frameTime = currentTime - fpsStats.lastFrameTime;
+        fpsStats.lastFrameTime = currentTime;
+        
+        // FPS (frames per second)
+        fpsStats.frameCount++;
+        if (currentTime >= fpsStats.lastTime + 1000) {
+            fpsStats.fps = Math.round((fpsStats.frameCount * 1000) / (currentTime - fpsStats.lastTime));
+            fpsStats.frameCount = 0;
+            fpsStats.lastTime = currentTime;
+        }
 
         if (window.isPaused) {
         // Älä päivitä mitään fysiikkaa pausella
@@ -2150,6 +2358,11 @@ export function startAnimateLoop() {
         
         // Update explosions
         updateExplosions(delta);
+
+        // Update explosion pool
+        if (window.explosionPool) {
+            window.explosionPool.update(delta);
+        }
         
         // Update orbitoivat alukset
         updateOrbitingShips(delta);
@@ -2159,6 +2372,8 @@ export function startAnimateLoop() {
 
         // Update conquest rings
         updateConquestRings(delta);
+
+
 
         if (controls) controls.update();
         updateBokehFocus();
@@ -2192,94 +2407,102 @@ export function stopAnimateLoop() {
 }
 
 function checkForCombatSituations(delta) {
-    // Tarkista vain 10 kertaa sekunnissa, ei joka frame
     combatCheckTimer += delta;
-    if (combatCheckTimer < 0.1) return; // 100ms välein
+    if (combatCheckTimer < 0.1) return; // Tarkista 10 kertaa sekunnissa
     combatCheckTimer = 0;
-    
-    // Käy läpi VAIN merkityt tähdet
+
+    // --- LISÄÄ SUORITUSKYVYN MITTAUS ---
+    const startTime = performance.now();
+    let starsChecked = 0;
+    let totalShipsProcessed = 0;
+    // --- MITTAUS PÄÄTTYY ---
+
     for (const starId of starsToCheck) {
         const starMesh = starsById.get(starId);
         if (!starMesh) {
             starsToCheck.delete(starId);
             continue;
         }
-        
-        // Kerää alukset vain tästä tähdestä
-        const shipsAtStar = [];
-        const factions = new Set();
-        
-        shipsById.forEach(shipMesh => {
-            const shipData = shipMesh.userData.shipData;
-            if (!shipData) return;
-            
-            // MUUTOS: Hyväksy myös predictedArrival-tilassa olevat alukset
-            const isAtStar = (
-                (shipData.parentStarId === starId && shipData.state === 'orbiting') ||
-                (shipData.targetStarId === starId && shipData.predictedArrival)
-            );
-            
-            if (isAtStar) {
-                shipsAtStar.push(shipMesh);
-                if (shipMesh.userData.owner) {
-                    factions.add(shipMesh.userData.owner);
-                }
+
+        // --- OPTIMOINNIN YDIN: O(1) haku O(N×M) sijaan ---
+        const shipsAtStarSet = shipsByStarClient.get(starId);
+
+        // Jos tähdellä ei ole aluksia, ei voi olla taistelua
+        if (!shipsAtStarSet || shipsAtStarSet.size === 0) {
+            // Jos täällä oli taistelu, lopeta se
+            if (combatEffects.has(starId)) {
+                console.log("✅ [CLIENT] Combat ended at star", starId, "- no ships");
+                const effect = combatEffects.get(starId);
+                effect.cleanup();
+                combatEffects.delete(starId);
             }
-        });
+            starsToCheck.delete(starId); 
+            continue;
+        }
+
+        // Kerää faktiot tehokkaasti Set-rakenteesta
+        const factions = new Set();
+        const shipArray = Array.from(shipsAtStarSet);
         
-        // Tarkista planetary defense
+        for (const shipMesh of shipsAtStarSet) {
+            if (shipMesh.userData.owner) {
+                factions.add(shipMesh.userData.owner);
+            }
+        }
+
         const starOwnerId = starMesh.userData.starData.ownerId;
         const starHasDefense = starMesh.userData.starData.defenseLevel > 0;
-        
-        // Taistelu tarvitaan jos:
-        // 1. Useampi faktio TAI
-        // 2. Yksi faktio hyökkää toisen omistamaa tähteä vastaan TAI
-        // 3. Joku hyökkää planeettapuolustusta vastaan
-        const needsCombat = shipsAtStar.length >= 2 && (
+
+        // Tarkista tarvitaanko taistelua
+        const needsCombat = 
             factions.size > 1 || 
             (factions.size === 1 && starOwnerId && !factions.has(starOwnerId)) ||
-            (factions.size === 1 && starHasDefense && !factions.has(starOwnerId))
-        );
-        
+            (shipsAtStarSet.size > 0 && starHasDefense && starOwnerId && !factions.has(starOwnerId));
+
         if (needsCombat) {
             if (!combatEffects.has(starId)) {
                 console.log("⚔️ [CLIENT] Combat situation detected at star", starId);
-                console.log(`   - Ships: ${shipsAtStar.length}, Factions: ${Array.from(factions).map(f => f.slice(-4)).join(', ')}`);
+                console.log(`   - Ships: ${shipsAtStarSet.size}, Factions: ${Array.from(factions).map(f => f.slice(-4)).join(', ')}`);
                 console.log(`   - Star owner: ${starOwnerId?.slice(-4) || 'neutral'}, Defense: ${starMesh.userData.starData.defenseLevel}`);
+                
+                // Rajoita aktiivisten efektien määrä
+                if (combatEffects.size >= MAX_ACTIVE_COMBAT_EFFECTS) {
+                    const firstKey = combatEffects.keys().next().value;
+                    const oldEffect = combatEffects.get(firstKey);
+                    if (oldEffect) {
+                        oldEffect.cleanup();
+                        combatEffects.delete(firstKey);
+                    }
+                }
                 
                 const effect = new CombatEffectGroup(starMesh, scene);
                 combatEffects.set(starId, effect);
             }
         } else {
-            const effect = combatEffects.get(starId);
-            if (effect) {
+            if (combatEffects.has(starId)) {
                 console.log("✅ [CLIENT] Combat ended at star", starId);
+                const effect = combatEffects.get(starId);
                 effect.cleanup();
                 combatEffects.delete(starId);
-                // Älä poista tähdestä vielä, koska tilanne voi muuttua
+                // Poista myös tarkistuslistalta
+                starsToCheck.delete(starId);
             }
         }
     }
     
-    // Päivitä kaikki aktiiviset efektit
+    // Päivitä aktiiviset efektit - käytä suoraan Set-rakennetta
     combatEffects.forEach((effect, starId) => {
-        const ships = [];
-        shipsById.forEach(shipMesh => {
-            const shipData = shipMesh.userData.shipData;
-            if (!shipData) return;
-            
-            // MUUTOS: Sisällytä myös predictedArrival alukset
-            const isAtStar = (
-                (shipData.parentStarId === starId && shipData.state === 'orbiting') ||
-                (shipData.targetStarId === starId && shipData.predictedArrival)
-            );
-            
-            if (isAtStar) {
-                ships.push(shipMesh);
-            }
-        });
+        const ships = Array.from(shipsByStarClient.get(starId) || []);
         effect.update(delta, ships);
     });
+
+    // --- LISÄÄ LOPPUUN MITTAUSRAPORTTI ---
+    const endTime = performance.now();
+    const duration = endTime - startTime;
+    
+    if (duration > 10) { // Varoitus jos yli 10ms
+        console.warn(`[PERFORMANCE] Combat check took ${duration.toFixed(2)}ms for ${starsChecked} stars, ${totalShipsProcessed} ships`);
+    }
 }
 
 function markStarForCombatCheck(starId) {
@@ -2290,6 +2513,37 @@ function markStarForCombatCheck(starId) {
 // Alusten orbitoinnin päivittäminen
 function updateOrbitingShips(delta) {
     const SIM_DELTA = Math.min(delta, 0.12); // Max ~7 framea kerralla
+
+    frameSkipCounter++;
+
+    if (frameSkipCounter % 60 === 0) {
+        let fixed = 0;
+    
+    shipsById.forEach(shipMesh => {
+        const shipData = shipMesh.userData.shipData;
+        if (!shipData || !shipData.parentStarId) return;
+        
+        const isOrbiting = shipData.state === 'orbiting' || shipData.predictedArrival;
+        const starId = shipData.predictedArrival ? shipData.targetStarId : shipData.parentStarId;
+        
+        if (isOrbiting && starId) {
+            // Varmista että alus on tracking rakenteessa
+            if (!shipsByStarClient.has(starId)) {
+                shipsByStarClient.set(starId, new Set());
+            }
+            
+            const starShips = shipsByStarClient.get(starId);
+            if (!starShips.has(shipMesh)) {
+                starShips.add(shipMesh);
+                fixed++;
+            }
+        }
+    });
+    
+    if (fixed > 0) {
+        console.log(`[AUTO-FIX] Re-tracked ${fixed} ships`);
+    }
+}
     checkForCombatSituations(delta); // Visuaalinen taisteluindikaattori siksi aikaa, kun serveri käy combatin
     shipsById.forEach(shipMesh => {
         // shipData on tallennettu userData:n sisään spawnShips funktiossa
@@ -2418,6 +2672,18 @@ function updateOrbitingShips(delta) {
                         shipMesh.userData.clickTarget.position.copy(shipMesh.position);
                     }
                     
+                    // --- UUSI: PÄIVITÄ HAKURAKENNE PREDICTED ARRIVAL -TILASSA ---
+                    // Lisää alus kohdetähden listalle jo nyt
+                    const targetStarId = shipData.targetStarId;
+                    if (targetStarId) {
+                        if (!shipsByStarClient.has(targetStarId)) {
+                            shipsByStarClient.set(targetStarId, new Set());
+                        }
+                        shipsByStarClient.get(targetStarId).add(shipMesh);
+                        console.log(`[PREDICTED-ARRIVAL] Added ship to star ${targetStarId} for combat check`);
+                    }
+                    // --- PÄIVITYS PÄÄTTYY ---
+                    
                     // LISÄÄ TÄMÄ: Pakota välitön taistelutarkistus
                     markStarForCombatCheck(shipData.targetStarId);
                     combatCheckTimer = 0.1; // Nollaa ajastin jotta seuraava tarkistus tapahtuu heti
@@ -2491,63 +2757,59 @@ function getPlayerColor(playerId) {
 
 function createConquestRing(starMesh, color = 0xffa500) {
     const starRadius = starMesh.geometry.parameters.radius * (starMesh.scale.x || 1);
+    const ringInnerRadius = starRadius + 8;
+    const ringOuterRadius = starRadius + 12;
     
-    // MUUTOS: Isompi etäisyys ja paksumpi rengas
-    const ringInnerRadius = starRadius + 8;  // Kauemmaksi tähdestä
-    const ringOuterRadius = starRadius + 12; // Paksumpi rengas (4 yksikköä)
-    
+    // Käytä yksinkertaisempaa geometriaa
     const geometry = new THREE.RingGeometry(
         ringInnerRadius, 
         ringOuterRadius, 
-        64, 
-        1, 
-        0, 
-        0 // Hieman isompi alku näkyvyyden vuoksi
+        32,  // Vähennetty 64 -> 32
+        1
     );
     
-    const material = new THREE.MeshBasicMaterial({
-        color: color,
+    // Käytä shaderia animointiin
+    const material = new THREE.ShaderMaterial({
+        uniforms: {
+            color: { value: new THREE.Color(color) },
+            progress: { value: 0.0 },
+            opacity: { value: 0.85 }
+        },
+        vertexShader: `
+            varying vec2 vUv;
+            void main() {
+                vUv = uv;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+        `,
+        fragmentShader: `
+            uniform vec3 color;
+            uniform float progress;
+            uniform float opacity;
+            varying vec2 vUv;
+            
+            void main() {
+                float angle = atan(vUv.y - 0.5, vUv.x - 0.5);
+                float normalizedAngle = (angle + 3.14159) / (2.0 * 3.14159);
+                
+                if (normalizedAngle > progress) {
+                    discard;
+                }
+                
+                gl_FragColor = vec4(color, opacity);
+            }
+        `,
         side: THREE.DoubleSide,
         transparent: true,
-        opacity: 0.85,  // Hieman läpinäkyvämpi
         depthWrite: false,
-        depthTest: false  // LISÄÄ: Renderöi aina päällimmäisenä
+        depthTest: false
     });
     
     const ring = new THREE.Mesh(geometry, material);
     ring.rotation.x = Math.PI / 2;
     ring.position.copy(starMesh.position);
-    ring.renderOrder = 15;  // Korkea renderOrder
+    ring.renderOrder = 15;
     
-    // LISÄÄ: Ulompi "glow" rengas
-    const glowGeometry = new THREE.RingGeometry(
-        ringInnerRadius - 1,
-        ringOuterRadius + 1,
-        64,
-        1,
-        0,
-        0.01
-    );
-    
-    const glowMaterial = new THREE.MeshBasicMaterial({
-        color: color,
-        side: THREE.DoubleSide,
-        transparent: true,
-        opacity: 0.2,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-        depthTest: false
-    });
-    
-    const glowRing = new THREE.Mesh(glowGeometry, glowMaterial);
-    glowRing.rotation.x = Math.PI / 2;
-    glowRing.position.copy(starMesh.position);
-    glowRing.renderOrder = 14;
-    
-    // Tallenna molemmat renkaat
-    ring.userData.glowRing = glowRing;
-    
-    scene.add(glowRing);
     scene.add(ring);
     return ring;
 }
@@ -2556,6 +2818,9 @@ function createConquestRing(starMesh, color = 0xffa500) {
  * Siivoaa koko scenen vanhan pelin objekteista.
  * Poistaa meshit, vapauttaa geometriat & materiaalit ja tyhjentää tilataulukot.
  */
+
+
+
 export function cleanupScene() {
     stopAnimateLoop(); // <<-- KUTSUTAAN UUTTA PYSÄYTYSFUNKTIOTA
     console.log('[CLEANUP] Siivotaan vanhan pelin 3D-objektit...');
@@ -2626,6 +2891,13 @@ export function cleanupScene() {
         }
         
         /* --------------------  Combat-effects  ---------------------------- */
+
+        // Siivotaan viihdykeräjähdykset 
+        if (window.explosionPool) {
+            window.explosionPool.cleanup();
+            window.explosionPool = null;
+        }
+
         combatEffects.forEach(effect => effect.cleanup());
         combatEffects.clear();
         starsToCheck.clear();
@@ -2645,7 +2917,10 @@ export function cleanupScene() {
         shipMesh.geometry.dispose();
         shipMesh.material.dispose();
     });
+
     shipsById.clear();
+
+    shipsByStarClient.clear();
 
     starConnections.forEach(line => scene.remove(line));
     starConnections.length = 0;
@@ -2707,6 +2982,207 @@ export function cleanupScene() {
     console.log('[CLEANUP] 3D-maailma siivottu perusteellisesti.');
 }
 
+// Manuaalinen siivous
+function performMemoryCleanup() {
+    console.log('🧹 [MEMORY-CLEANUP] Starting manual memory cleanup...');
+    
+    let cleaned = 0;
+    
+    // 1. Siivoa poistetut alukset tracking-rakenteesta
+    shipsByStarClient.forEach((ships, starId) => {
+        const validShips = new Set();
+        ships.forEach(shipMesh => {
+            // Tarkista että alus on vielä olemassa
+            if (shipsById.has(shipMesh.userData.entityId)) {
+                validShips.add(shipMesh);
+            } else {
+                cleaned++;
+            }
+        });
+        
+        if (validShips.size === 0) {
+            shipsByStarClient.delete(starId);
+        } else {
+            shipsByStarClient.set(starId, validShips);
+        }
+    });
+    
+    // 2. Siivoa vanhat combat effectit
+    combatEffects.forEach((effect, starId) => {
+        const star = starsById.get(starId);
+        if (!star) {
+            effect.cleanup();
+            combatEffects.delete(starId);
+            cleaned++;
+        }
+    });
+    
+    // 3. Siivoa turhat tarkistukset
+    const validStarsToCheck = new Set();
+    starsToCheck.forEach(starId => {
+        if (starsById.has(starId)) {
+            validStarsToCheck.add(starId);
+        } else {
+            cleaned++;
+        }
+    });
+    starsToCheck.clear();
+    validStarsToCheck.forEach(id => starsToCheck.add(id));
+    
+    console.log(`✅ [MEMORY-CLEANUP] Cleaned ${cleaned} obsolete references`);
+}
+
+function cleanupCombatChecks() {
+    console.log('🔧 [COMBAT-CLEANUP] Fixing ship tracking...');
+    
+    let fixed = 0;
+    let removed = 0;
+    
+    // 1. Käy läpi kaikki alukset ja varmista tracking
+    shipsById.forEach(shipMesh => {
+        const shipData = shipMesh.userData.shipData;
+        if (!shipData) return;
+        
+        // Jos alus on orbiting tai conquering, varmista että se on tracked
+        if ((shipData.state === 'orbiting' || shipData.state === 'conquering') && shipData.parentStarId) {
+            const starId = shipData.parentStarId;
+            
+            if (!shipsByStarClient.has(starId)) {
+                shipsByStarClient.set(starId, new Set());
+            }
+            
+            const starShips = shipsByStarClient.get(starId);
+            if (!starShips.has(shipMesh)) {
+                starShips.add(shipMesh);
+                fixed++;
+            }
+        }
+    });
+    
+    // 2. Poista turhat merkinnät
+    shipsByStarClient.forEach((ships, starId) => {
+        const validShips = new Set();
+        
+        ships.forEach(shipMesh => {
+            // Varmista että alus on olemassa ja oikeassa tilassa
+            if (shipsById.has(shipMesh.userData.entityId)) {
+                const shipData = shipMesh.userData.shipData;
+                if (shipData && shipData.parentStarId?.toString() === starId) {
+                    validShips.add(shipMesh);
+                } else {
+                    removed++;
+                }
+            } else {
+                removed++;
+            }
+        });
+        
+        if (validShips.size === 0) {
+            shipsByStarClient.delete(starId);
+        } else {
+            shipsByStarClient.set(starId, validShips);
+        }
+    });
+    
+    // 3. Nollaa combat tarkistukset
+    combatCheckTimer = 0;
+    
+    console.log(`✅ [COMBAT-CLEANUP] Fixed ${fixed} ships, removed ${removed} invalid entries`);
+}
+
+// Debug-funktio joka on käytettävissä globaalisti
+export function getSceneDebugInfo() {
+    // Laske tracking accuracy
+    let totalTracked = 0;
+    shipsByStarClient.forEach(ships => {
+        totalTracked += ships.size;
+    });
+    
+    // Laske untracked ships
+    let untrackedShips = 0;
+    shipsById.forEach(shipMesh => {
+        const shipData = shipMesh.userData.shipData;
+        if (shipData && shipData.state === 'orbiting' && shipData.parentStarId) {
+            let found = false;
+            shipsByStarClient.forEach(ships => {
+                if (ships.has(shipMesh)) found = true;
+            });
+            if (!found) untrackedShips++;
+        }
+    });
+    
+    return {
+        fps: fpsStats.fps,
+        frameTime: fpsStats.frameTime ? fpsStats.frameTime.toFixed(1) : '0',
+        totalShips: shipsById.size,
+        starsWithShips: shipsByStarClient.size,
+        trackedShips: totalTracked,
+        untrackedShips: untrackedShips,
+        trackingAccuracy: shipsById.size > 0 ? ((totalTracked / shipsById.size) * 100).toFixed(1) : '100',
+        shipsByStarDetails: () => {
+            const details = [];
+            let totalTracked = 0;
+            
+            shipsByStarClient.forEach((ships, starId) => {
+                totalTracked += ships.size;
+                const star = starsById.get(starId);
+                const starName = star?.userData?.starData?.name || 'Unknown';
+                if (ships.size > 0) {
+                    details.push({
+                        starName,
+                        starId,
+                        shipCount: ships.size
+                    });
+                }
+            });
+            
+            return {
+                details,
+                totalTracked,
+                trackingAccuracy: shipsById.size > 0 ? (totalTracked / shipsById.size * 100).toFixed(1) : '0',
+                untrackedShips: untrackedShips
+            };
+        },
+        combatEffects: combatEffects.size,
+        explosions: explosions.length,
+        starsToCheck: starsToCheck.size,
+        performanceIssues: {
+            tooManyCombatEffects: combatEffects.size > 10,
+            tooManyStarsToCheck: starsToCheck.size > 30,
+            poorTrackingAccuracy: totalTracked < shipsById.size * 0.95
+        }
+    };
+}
+
+// Tee funktio saatavaksi window-objektissa
+window.getSceneDebugInfo = getSceneDebugInfo;
+window.performMemoryCleanup = performMemoryCleanup;
+window.cleanupCombatChecks = cleanupCombatChecks;
+
+// Lisää myös automaattinen cleanup 10 sekunnin välein
+setInterval(() => {
+    // Tarkista onko tracking accuracy huono
+    let totalTracked = 0;
+    shipsByStarClient.forEach(ships => {
+        totalTracked += ships.size;
+    });
+    
+    const accuracy = shipsById.size > 0 ? (totalTracked / shipsById.size) : 1;
+    
+    // Jos accuracy alle 90%, korjaa automaattisesti
+    if (accuracy < 0.9) {
+        console.log(`[AUTO-CLEANUP] Tracking accuracy low (${(accuracy * 100).toFixed(1)}%), running cleanup...`);
+        cleanupCombatChecks();
+    }
+    
+    // Jos liian monta efektiä, siivoa
+    if (combatEffects.size > 10 || starsToCheck.size > 50) {
+        console.log(`[AUTO-CLEANUP] Too many effects/checks, running cleanup...`);
+        cleanupCombatChecks();
+    }
+}, 10000); // 10 sekuntia
+
+
 /* ========================================================================== */
 /*  EXPORTS                                                                   */
 /* ========================================================================== */
@@ -2717,5 +3193,5 @@ export {
     focusOnStar,
     spawnExplosion,
     selectedStar,
-    hoveredStar
-};
+    hoveredStar,
+ };

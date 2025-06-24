@@ -161,40 +161,92 @@ class AIController {
   /*  PUBLIC – one call per game tick                                     */
   /* -------------------------------------------------------------------- */
   runTurn(turnNumber, income = { credits:0, minerals:0 }) {
-    /* 1) päivitä kukkarot */
-    const totalMines = this._countOwnedMines();
-    this._deposit(splitBudget(income, totalMines));
+      // Jos income on nolla (oletusarvo), laske delta itse
+      if (income.credits === 0 && income.minerals === 0) {
+          income = {
+              credits: Math.max(0, this.res.credits - this.prevRes.credits),
+              minerals: Math.max(0, this.res.minerals - this.prevRes.minerals)
+          };
+      }
+      
+      /* 1) päivitä kukkarot */
+      const totalMines = this._countOwnedMines();
+      this._deposit(splitBudget(income, totalMines));
+      const totalShips = this.ships.filter(s => s.ownerId?.toString() === this.aiId).length;
 
-    /* 2) jos tukikohtaa ei ole → pass */
-    const myStars = this.stars.filter(s => s.ownerId?.toString() === this.aiId);
-    if (!myStars.length) return [{ action:'NO_BASE' }];
+      /* 2) jos tukikohtaa ei ole → pass */
+      const myStars = this.stars.filter(s => s.ownerId?.toString() === this.aiId);
+      if (!myStars.length) return [{ action:'NO_BASE' }];
 
-    const totalShips = this.ships.filter(s => s.ownerId?.toString() === this.aiId).length;
+      const acts = [];
 
-    /* 3) päätökset */
-    const acts = [];
+      // EARLY GAME GUARDS
+      if (totalMines < 5) {
+          // Rakenna VAIN kaivoksia
+          const mineBuild = this._buildMineOnly(myStars);
+          if (mineBuild) acts.push(mineBuild);
+          
+          // MUTTA anna laajentua silti!
+          acts.push(...this._expand(myStars));
+          
+          // Lisätään playerId kaikkiin
+          acts.forEach(act => { act.playerId = this.aiId; });
+          // Päivitä prevRes AINA ennen paluuta
+          this.prevRes.credits = this.res.credits;
+          this.prevRes.minerals = this.res.minerals;
+          return acts;
+      }
+      
+      if (totalMines < 10 && totalShips < 10) {
+          // Rakenna kaivoksia ja laivoja, mutta anna myös laajentua
+          const sBuild = this._buildOneStructure(myStars, totalMines, totalShips);
+          if (sBuild) acts.push(sBuild);
+          acts.push(...this._buildShips(myStars, totalMines, totalShips));
+          acts.push(...this._expand(myStars));  // Tärkeä!
+          
+          // Lisätään playerId kaikkiin
+          acts.forEach(act => { act.playerId = this.aiId; });
+          // Päivitä prevRes AINA ennen paluuta
+          this.prevRes.credits = this.res.credits;
+          this.prevRes.minerals = this.res.minerals;
+          return acts;
+      }
 
-    const sBuild = this._buildOneStructure(myStars, totalMines, totalShips);
-    if (sBuild) acts.push(sBuild);
+      /* 3) Normaali logiikka (after early game) */
+      const sBuild = this._buildOneStructure(myStars, totalMines, totalShips);
+      if (sBuild) acts.push(sBuild);
 
-    acts.push(...this._buildShips(myStars, totalMines, totalShips));
-    acts.push(...this._defend(myStars));
-    acts.push(...this._expand(myStars));
+      acts.push(...this._buildShips(myStars, totalMines, totalShips));
+      acts.push(...this._defend(myStars));
+      acts.push(...this._expand(myStars));
 
-    this.prevRes.credits = this.res.credits;
-    this.prevRes.minerals = this.res.minerals;
+      // Päivitä prevRes vasta lopussa
+      this.prevRes.credits = this.res.credits;
+      this.prevRes.minerals = this.res.minerals;
 
-    // Lisätään jokaiseen actioniin lähettäjän ID
-    acts.forEach(act => {
-        act.playerId = this.aiId;
-    });
+      // Lisätään jokaiseen actioniin lähettäjän ID
+      acts.forEach(act => { act.playerId = this.aiId; });
 
-    return acts;
+      return acts;
   }
 
   /* ==================================================================== */
   /*  PLANETARY BUILDING LOGIC                                            */
   /* ==================================================================== */
+  _buildMineOnly(myStars) {
+      const tgt = myStars.find(st => this._hasMineRoom(st));
+      if (tgt && affordable(STRUCT_COST.Mine, this.eco)) {
+          pay(STRUCT_COST.Mine, this.eco, this.res);
+          return { 
+              action:'QUEUE_PLANETARY',
+              starId:tgt.id,
+              build:{ type:'Mine', time:STRUCT_COST.Mine.time },
+              playerId: this.aiId
+          };
+      }
+      return null;
+  }
+
   _buildOneStructure(myStars, totalMines) {
     /* Early-rule: ennen 5 kaivosta rakennetaan vain lisää kaivoksia */
     if (totalMines < 5) {
@@ -241,52 +293,49 @@ class AIController {
    *   { star, type, cost, score }
    */
   _enumerateBuildOptions(star, totalMines, bucket) {
-    /* ——— 1. Rajat & varmistukset ——— */
-    const infraLvl = this._effectiveInfraLevel(star);           // valmis + jonossa
-    const limits   = this.infra[infraLvl]                       // varovainen fallback
-                  ?? this.infra[Math.max(...Object.keys(this.infra))];
+      const infraLvl = this._effectiveInfraLevel(star);
+      const limits = this.infra[infraLvl] ?? this.infra[Math.max(...Object.keys(this.infra))];
 
-    const eWeights = earlyWeights(totalMines) || {};
-    const push = (type, cost, mult = 1) => {
-      const w = eWeights[type] ?? eWeights.Infrastructure ?? 1;
-      bucket.push({
-        star, type, cost,
-        score: this._scoreBuild(star, type) * w * mult
-      });
-    };
+      const eWeights = earlyWeights(totalMines) || {};
+      
+      const push = (type, cost, mult = 1) => {
+          const w = eWeights[type] ?? 1;
+          bucket.push({
+              star, type, cost,
+              score: this._scoreBuild(star, type) * w * mult
+          });
+      };
 
-    /* ——— 2. Infrastructure (max 5) ——— */
-    if (star.infrastructureLevel < 5 && !this._infraQueued(star)) {
-      const c = this._infraCost(star.infrastructureLevel);
-      push(`Infrastructure Lvl ${c.nextLevel}`, c);
-    }
+      // Infrastructure (max 5 vanhassa, mutta AIController käyttää jo 5)
+      if (star.infrastructureLevel < 5 && !this._infraQueued(star)) {
+          const c = this._infraCost(star.infrastructureLevel);
+          push(`Infrastructure Lvl ${c.nextLevel}`, c);
+      }
 
-    /* ——— 3. Shipyard ——— */
-    const AI_YARD_CAP = 3;                       // AI hard-cap
-    const yardQueued  = this._yardQueued(star);
+      // Shipyard
+      const AI_YARD_CAP = 3;
+      const yardQueued = this._yardQueued(star);
 
-    if (star.shipyardLevel === 0 && !yardQueued) {
-      // uusi telakka
-      push("Shipyard", STRUCT_COST["Shipyard Lvl 1"]);
+      if (star.shipyardLevel === 0 && !yardQueued) {
+          push("Shipyard", STRUCT_COST["Shipyard Lvl 1"]);
+      } else if (
+          star.shipyardLevel > 0 &&
+          star.shipyardLevel < Math.min(limits.maxShipyard, AI_YARD_CAP) &&
+          !yardQueued
+      ) {
+          const c = this._shipyardCost(star.shipyardLevel);
+          push(`Shipyard Lvl ${c.nextLevel}`, c);
+      }
 
-    } else if (
-      star.shipyardLevel < Math.min(limits.maxShipyard, AI_YARD_CAP) &&
-      !yardQueued
-    ) {
-      // päivitys (mutta AI maks. lvl 3)
-      const c = this._shipyardCost(star.shipyardLevel);
-      push(`Shipyard Lvl ${c.nextLevel}`, c);
-    }
+      // Mine - mineRoomScale hoituu scoreBuildissa
+      if (this._hasMineRoom(star)) {
+        push("Mine", STRUCT_COST.Mine, this._mineRoomScale(star));
+      }
 
-    /* ——— 4. Mine ——— */
-    if (this._hasMineRoom(star)) {
-      push("Mine", STRUCT_COST.Mine, this._mineRoomScale(star));
-    }
-
-    /* ——— 5. Planetary Defense ——— */
-    if (this._scoreBuild(star, "Defense Upgrade") > 0) {
-      push("Defense Upgrade", STRUCT_COST["Defense Upgrade"]);
-    }
+      // Defense
+      if (this._scoreBuild(star, "Defense Upgrade") > 0) {
+          push("Defense Upgrade", STRUCT_COST["Defense Upgrade"]);
+      }
   }
 
   /* ==================================================================== */
@@ -518,6 +567,25 @@ class AIController {
   /* ==================================================================== */
   /*  SCORING HELPERS (build decisions)                                   */
   /* ==================================================================== */
+  _effectiveShipyardLevel(star) {
+    return star.shipyardLevel + 
+        (star.planetaryQueue || []).filter(it => 
+            it.type.startsWith('Shipyard')
+        ).length;
+  }
+
+  _shipyardDiminish() {
+      const builtYards = this.stars.filter(s => 
+          s.ownerId?.toString() === this.aiId && 
+          s.shipyardLevel > 0
+      ).length;
+      
+      if (builtYards <= 1) return 1.0;
+      else if (builtYards === 2) return 0.5;
+      else if (builtYards === 3) return 0.2;
+      return 0.05;
+  }
+
   _effectiveInfraLevel(star){
     return star.infrastructureLevel +
       (star.planetaryQueue||[]).filter(it=>it.type.startsWith('Infrastructure')).length;
@@ -547,64 +615,120 @@ class AIController {
     const lim=this.infra[star.infrastructureLevel].maxMines;
     return star.mines + this._queuedCount(star,'Mine') < lim;
   }
-  _mineRoomScale(star){
-    const lim=this.infra[star.infrastructureLevel].maxMines;
-    const built=star.mines + this._queuedCount(star,'Mine');
-    const free =lim-built;
-    if(built===0||free<=0) return 0;
-    return Math.min(1, free/5 + 0.20);
+  _mineRoomScale(star) {
+      const lim   = this.infra[star.infrastructureLevel].maxMines;
+      const built = star.mines + this._queuedCount(star, 'Mine');
+      const free  = lim - built;
+
+      // 1. ei enää slotteja → älä pisteytä
+      if (free <= 0) return 0;
+
+      // 2. nollasta aloittaminen
+      if (built === 0) {
+          // hae omat tähdet (tai anna listana parametrina jos haluat välttää filter-kutsun)
+          const myStars = this.stars.filter(
+              s => s.ownerId?.toString() === this.aiId
+          );
+
+          // jos JOLLAIN muulla tähdellä on vielä kaivos-slotteja → paino 0
+          const otherHasRoom = myStars.some(
+              s => s !== star && this._hasMineRoom(s)
+          );
+          return otherHasRoom ? 0 : 0.25;  // “kylvä” ensimmäinen kaivos
+      }
+
+      // 3. tähti on jo aloitettu → laske asteikko
+      return Math.min(1, free / 5 + 0.20); // 5 slot → 0.20, 4 slot → 0.40 …
   }
 
   /* ---- missing earlier → now back ---- */
-  _scoreBuild(star, type){
-    const infraLvl=this._effectiveInfraLevel(star);
-    const lim=this.infra[infraLvl];
-    const e={
-      mines   : star.mines + this._queuedCount(star,'Mine'),
-      defense : star.defenseLevel + this._queuedCount(star,'Defense Upgrade'),
-      yard    : star.shipyardLevel +
-                this._queuedCount(star,'Shipyard Lvl')
+_scoreBuild(star, type) {
+    const infraLvl = this._effectiveInfraLevel(star);
+    const yardLvl = this._effectiveShipyardLevel(star);
+    const lim = this.infra[infraLvl];
+    
+    // Efektiiviset määrät (valmis + jonossa)
+    const e = {
+        mines: star.mines + this._queuedCount(star, 'Mine'),
+        defense: star.defenseLevel + this._queuedCount(star, 'Defense Upgrade'),
+        yard: yardLvl
     };
 
-    if(type==='Mine'            && e.mines   >= lim.maxMines   ) return 0;
-    if(type==='Defense Upgrade' && e.defense >= lim.maxDefense ) return 0;
-    if(type.startsWith('Shipyard') && e.yard >= lim.maxShipyard) return 0;
+    // Perustarkistukset
+    if (type === 'Mine' && e.mines >= lim.maxMines) return 0;
+    if (type === 'Defense Upgrade' && e.defense >= lim.maxDefense) return 0;
+    if (type.startsWith('Shipyard') && e.yard >= lim.maxShipyard) return 0;
 
-    let score=0;
+    let score = 0;
 
-    if(type==='Mine'){
-      score=WEIGHTS.Mine * (1 - e.mines/lim.maxMines) * 1.5;
+    if (type === 'Mine') {
+        const ratio = e.mines / Math.max(1, lim.maxMines);
+        score = WEIGHTS.Mine * (1 - ratio) * 1.5;
+        
+    } else if (type.startsWith('Infrastructure')) {
+        // Älä kehitä tyhjää planeettaa
+        const hasMine = star.mines + this._queuedCount(star, 'Mine') > 0;
+        const hasYard = star.shipyardLevel > 0 || this._yardQueued(star);
+        if (!hasMine && !hasYard) return 0;
 
-    }else if(type.startsWith('Infrastructure')){
-      const hasMine=e.mines>0, hasYard=e.yard>0;
-      if(!hasMine&&!hasYard) return 0;
-      score=WEIGHTS.Infrastructure*(4-star.infrastructureLevel);
-      if(hasYard) score*=1.8;
-      if(hasMine) score*=1.8;
-      if(star.infrastructureLevel>=2 && star.shipyardLevel<2) score*=0.1;
-      else if(star.infrastructureLevel>=3 && star.shipyardLevel<3) score*=0.1;
+        score = WEIGHTS.Infrastructure * (4 - star.infrastructureLevel);
+        if (star.shipyardLevel > 0) score *= 1.8;
+        if (hasMine) score *= 1.8;
 
-    }else if(type==='Shipyard'||type.startsWith('Shipyard Lvl')){
-      score = type==='Shipyard'
-            ? WEIGHTS.Shipyard
-            : WEIGHTS['Shipyard Upgrade']*(3-star.shipyardLevel);
-      if(star.infrastructureLevel>=3 && star.shipyardLevel<2) score*=2.5;
+        // VAIMENNUS: jos infra on edellä telakkaa
+        if (star.infrastructureLevel >= 2 && star.shipyardLevel < 2) {
+            score *= 0.1;
+        } else if (star.infrastructureLevel >= 3 && star.shipyardLevel < 3) {
+            score *= 0.1;
+        }
+        
+    } else if (type === 'Shipyard' || type.startsWith('Shipyard Lvl')) {
+        // A) Uusi telakka
+        if (star.shipyardLevel === 0 && !this._yardQueued(star)) {
+            const dim = this._shipyardDiminish();
+            score = WEIGHTS.Shipyard * dim;
+            
+        // B) Telakan päivitys - EI diminishing returns!
+        } else {
+            score = WEIGHTS['Shipyard Upgrade'] * (3 - star.shipyardLevel);
+            
+            // Extra boost lvl 2->3 (avataan Cruiserit)
+            if (star.shipyardLevel === 2) score *= 3;
+        }
+        
+        // Lisäbonus: korkea infra + matala telakka
+        if (star.infrastructureLevel >= 3 && star.shipyardLevel < 2) {
+            score *= 2.5;
+        }
+        
+    } else if (type === 'Defense Upgrade') {
+        const yardFuture = this._effectiveShipyardLevel(star);
+        const worthDefending = yardFuture > 0 || star.infrastructureLevel >= 2;
+        if (!worthDefending) return 0;
 
-    }else if(type==='Defense Upgrade'){
-      const wanted=this._wantedDefense(star, e.yard);
-      const missing=Math.max(0, wanted - e.defense);
-      if(!missing) return 0;
-      score=WEIGHTS['Defense Upgrade']*missing;
-      if(star.infrastructureLevel>=4) score*=4;
-      else if(star.infrastructureLevel===3) score*=3;
-      else if(e.yard>0) score*=2;
+        const wanted = this._wantedDefense(star, yardFuture);
+        const queued = this._queuedCount(star, 'Defense Upgrade');
+        const have = star.defenseLevel;
+        const missing = Math.max(0, wanted - (have + queued));
+        if (missing === 0) return 0;
+
+        let base = WEIGHTS['Defense Upgrade'] * missing;
+        
+        // Arvokertoimet
+        if (star.infrastructureLevel >= 4) base *= 4.0;
+        else if (star.infrastructureLevel === 3) base *= 3.0;
+        else if (yardFuture > 0) base *= 2.0;
+        
+        score = base;
     }
 
-    if(!star.isHomeworld) score*=1.3;
-    if((star.connections||[]).length>2) score*=1.2;
-    if(star.shipyardLevel===0 && !type.startsWith('Shipyard')) score*=0.1;
+    // Yleiset bonukset
+    if (!star.isHomeworld) score *= 1.3;
+    if ((star.connections || []).length > 2) score *= 1.2;
+    if (star.shipyardLevel === 0 && !type.startsWith('Shipyard')) score *= 0.1;
+
     return score;
-  }
+}
 
   _wantedDefense(star, futureYard){
     const lvl=star.infrastructureLevel;

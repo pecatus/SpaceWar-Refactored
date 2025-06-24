@@ -520,9 +520,24 @@ async _loop() {
 async _saveInBackground() {
     const promises = [];
     
-    // Kopioi listat
-    const starsToSave = [...this._pendingSaves.stars];
-    const shipsToSave = [...this._pendingSaves.ships];
+    // Kopioi listat ja käytä Map duplikaattien estämiseen
+    const starsToSave = new Map();
+    const shipsToSave = new Map();
+    
+    // Kerää uniikki tähdet
+    this._pendingSaves.stars.forEach(star => {
+        if (star && star._id) {
+            starsToSave.set(star._id.toString(), star);
+        }
+    });
+    
+    // Kerää uniikki alukset
+    this._pendingSaves.ships.forEach(ship => {
+        if (ship && ship._id) {
+            shipsToSave.set(ship._id.toString(), ship);
+        }
+    });
+    
     const deletedShips = [...(this._pendingSaves.deletedShips || [])];
     
     // Tyhjennä alkuperäiset
@@ -530,28 +545,71 @@ async _saveInBackground() {
     this._pendingSaves.ships.clear();
     this._pendingSaves.deletedShips = [];
     
-    // Tallenna
-    starsToSave.forEach(star => {
-        promises.push(star.save().catch(e => 
-            console.error(`[BG-SAVE] Star ${star._id}:`, e.message)
-        ));
+    // Tallenna tähdet - varmista että ei tallenneta samaa kahdesti
+    starsToSave.forEach((star, starId) => {
+        // Tarkista että tähti on vielä olemassa pelitilassa
+        if (this.state.stars.some(s => s._id.toString() === starId)) {
+            promises.push(
+                star.save()
+                    .then(() => {
+                        // console.log(`[SAVE] Star ${starId} saved`);
+                    })
+                    .catch(e => {
+                        if (e.message.includes("Can't save() the same doc")) {
+                            // Tämä on OK - ignoroi
+                        } else {
+                            console.error(`[BG-SAVE] Star ${starId}:`, e.message);
+                        }
+                    })
+            );
+        }
     });
     
-    shipsToSave.forEach(ship => {
-        promises.push(ship.save().catch(e => 
-            console.error(`[BG-SAVE] Ship ${ship._id}:`, e.message)
-        ));
+    // Tallenna alukset - varmista että alus on vielä olemassa
+    shipsToSave.forEach((ship, shipId) => {
+        // Tarkista että alus on vielä olemassa pelitilassa
+        if (this.state.ships.some(s => s._id.toString() === shipId)) {
+            promises.push(
+                ship.save()
+                    .then(() => {
+                        // console.log(`[SAVE] Ship ${shipId} saved`);
+                    })
+                    .catch(e => {
+                        if (e.message.includes("No document found")) {
+                            // Alus on jo poistettu - ignoroi
+                        } else if (e.message.includes("Can't save() the same doc")) {
+                            // Rinnakkaistallennus - ignoroi
+                        } else {
+                            console.error(`[BG-SAVE] Ship ${shipId}:`, e.message);
+                        }
+                    })
+            );
+        }
     });
     
-    deletedShips.forEach(shipId => {
-        promises.push(Ship.findByIdAndDelete(shipId).catch(e =>
-            console.error(`[BG-SAVE] Delete ship ${shipId}:`, e.message)
-        ));
+    // Poista alukset - varmista että ei poisteta samaa kahdesti
+    const uniqueDeletes = [...new Set(deletedShips)];
+    uniqueDeletes.forEach(shipId => {
+        promises.push(
+            Ship.findByIdAndDelete(shipId)
+                .then(result => {
+                    if (result) {
+                        // console.log(`[DELETE] Ship ${shipId} deleted`);
+                    }
+                })
+                .catch(e => {
+                    if (e.message.includes("No document found")) {
+                        // Jo poistettu - OK
+                    } else {
+                        console.error(`[BG-SAVE] Delete ship ${shipId}:`, e.message);
+                    }
+                })
+        );
     });
     
     if (promises.length > 0) {
-        console.log(`[BG-SAVE] Saving ${promises.length} documents in background`);
-        await Promise.all(promises);
+        // console.log(`[BG-SAVE] Saving ${promises.length} documents in background`);
+        await Promise.allSettled(promises); // Käytä allSettled, ei all
     }
 }
 
@@ -705,8 +763,9 @@ async _checkConquestStart(star, ships, diff) {
     }
       // TALLENNA KAIKKI MUUTETUT TÄHDET VAIN KERRAN
       for (const star of modifiedStars) {
-        await star.save();
+        this._pendingSaves.stars.add(star);
       }
+      return modifiedStars;
   }
 
   
@@ -833,7 +892,7 @@ async _applyActions(actions) {
           timeLeft:  act.build.time,
           totalTime: act.build.time
         });
-        await st.save();
+        this._pendingSaves.stars.add(st);
       }
       continue;
     }
@@ -869,7 +928,7 @@ async _applyActions(actions) {
           timeLeft:  act.build.time,
           totalTime: act.build.time
         });
-        await st.save();
+        this._pendingSaves.stars.add(st);
       }
       continue;
     }
@@ -945,7 +1004,7 @@ async _applyActions(actions) {
             sh.ticksToArrive = 10; // Default jos ei lähtötähteä
         }
         
-        await sh.save();
+        this._pendingSaves.ships.add(sh);
         
         // Lähetä diff
         const diff = {
@@ -1031,17 +1090,18 @@ async _advanceMovement(diff) {
             
             this._pendingSaves.ships.add(ship);
             
+            // MUUTOS: Lisää ship type ja owner info viestiin
             arrivalDiffs.push({
                 action: 'SHIP_ARRIVED',
                 shipId: ship._id.toString(),
-                atStarId: targetStar._id.toString()
+                atStarId: targetStar._id.toString(),
+                shipType: ship.type,        // LISÄÄ TÄMÄ
+                ownerId: ship.ownerId       // JA TÄMÄ
             });
         }
         
-        // Lähetä saapumiset
-        if (this.io && arrivalDiffs.length > 0) {
-            this.io.to(this.gameId.toString()).emit("game_diff", arrivalDiffs);
-        }
+        // TÄRKEÄ: Älä lähetä vielä - lisää vain diff-listaan
+        diff.push(...arrivalDiffs);
         
         // Tarkista taistelu/valloitus
         const combatDiff = [];
@@ -1052,13 +1112,7 @@ async _advanceMovement(diff) {
         
         await this._resolveCombatAtStar(targetStar, combatDiff, shipsAtTarget);
         
-        // Lähetä combat diffit
-        if (this.io && combatDiff.length > 0) {
-            this.io.to(this.gameId.toString()).emit("game_diff", combatDiff);
-        }
-        
-        // Lisää diffeihin
-        diff.push(...arrivalDiffs);
+        // Lisää combat diffit
         diff.push(...combatDiff);
     }
 }
@@ -1595,20 +1649,30 @@ async _resolveCombatAtStar(star, diff, shipsAtStar = null) {
   }
 
   // Jos laiva tuhoutuu, poistetaan
-  async _destroyShip(shipId, diff) {
+async _destroyShip(shipId, diff) {
     const shipIndex = this.state.ships.findIndex(s => s._id.toString() === shipId.toString());
-    if (shipIndex === -1) return;
+    if (shipIndex === -1) {
+        console.warn(`[DESTROY] Ship ${shipId} not found in state`);
+        return;
+    }
 
     const [ship] = this.state.ships.splice(shipIndex, 1);
     
-    // Merkitse poistettavaksi
-    this._pendingSaves.deletedShips = this._pendingSaves.deletedShips || [];
-    this._pendingSaves.deletedShips.push(shipId);
+    // Varmista että poistolista on alustettu
+    if (!this._pendingSaves.deletedShips) {
+        this._pendingSaves.deletedShips = [];
+    }
+    
+    // Lisää vain kerran
+    const shipIdStr = shipId.toString();
+    if (!this._pendingSaves.deletedShips.includes(shipIdStr)) {
+        this._pendingSaves.deletedShips.push(shipIdStr);
+    }
 
     // Lähetä diff HETI clientille
     const destroyDiff = [{
         action: 'SHIP_DESTROYED',
-        shipId: shipId,
+        shipId: shipIdStr, // Käytä string muotoa
         ownerId: ship.ownerId,
         type: ship.type,
         position: ship.position
@@ -1619,7 +1683,7 @@ async _resolveCombatAtStar(star, diff, shipsAtStar = null) {
     }
     
     diff.push(...destroyDiff);
-  }
+}
 
   /* ---------------- FLUSH + BROADCAST ----- */
     async _flush(diff) {

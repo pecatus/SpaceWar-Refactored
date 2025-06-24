@@ -273,7 +273,7 @@ app.post("/api/games/new", async (req, res) => {
     const gameConfig = {
       humanName: req.body.playerName || "Player",
       humanColor: req.body.playerColor || "#007bff",
-      numAiPlayers: req.body.aiCount || 1,
+      numAiPlayers: req.body.numAiPlayers|| 1,
       aiColors: req.body.aiColors || ["#dc3545", "#28a745", "#ffc107", "#17a2b8"],
       starCount: req.body.starCount || 120,
       playerId: playerId,

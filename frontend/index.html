@@ -472,6 +472,43 @@
         body.paused #planetMenu button:hover {
             background-color: #374151; /* Ei hover-efektiä */
         }
+
+        #planetMenu button[title]:hover::after {
+        content: attr(title);
+        position: absolute;
+        bottom: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0, 0, 0, 0.9);
+        color: white;
+        padding: 5px 10px;
+        border-radius: 4px;
+        white-space: nowrap;
+        z-index: 1000;
+        pointer-events: none;
+        }
+
+        /* Näytä tooltip myös piilotetuille napeille kun parent on hover-tilassa */
+        #planetMenu:hover button[style*="display: none"][title]::after {
+            content: attr(title);
+            /* sama tyyli kuin yllä */
+        }
+
+        #performanceMonitor {
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        #performanceMonitor:hover {
+            background: rgba(0,0,0,0.95);
+            border-color: #00ff00;
+        }
+
+        /* Animoi FPS-muutokset */
+        #fpsCounter {
+            transition: color 0.3s ease;
+        }
+
     </style>
 </head>
 
@@ -717,6 +754,54 @@
         <span></span>
         <span class="groups-title">Focus Camera: Click button or double-press number</span>
         <span></span>
+    </div>
+
+    <!-- Performance Monitor (F3 toggles visibility) -->
+    <div id="performanceMonitor" style="
+        position: fixed; 
+        top: 10px; 
+        right: 10px; 
+        background: rgba(0,0,0,0.9); 
+        color: #00ff00; 
+        padding: 10px 15px; 
+        font-family: 'Courier New', monospace; 
+        font-size: 13px; 
+        display: none; 
+        z-index: 1000;
+        border: 1px solid #00ff00;
+        border-radius: 4px;
+        min-width: 180px;
+        box-shadow: 0 2px 10px rgba(0,255,0,0.3);
+    ">
+        <div style="margin-bottom: 8px; border-bottom: 1px solid #00ff00; padding-bottom: 5px;">
+            <strong>🎮 PERFORMANCE</strong>
+        </div>
+        <table style="width: 100%; border-collapse: collapse;">
+            <tr>
+                <td style="padding: 2px 0;">FPS:</td>
+                <td style="text-align: right; padding: 2px 0;">
+                    <span id="fpsCounter" style="font-weight: bold; min-width: 40px; display: inline-block;">0</span>
+                </td>
+            </tr>
+            <tr>
+                <td style="padding: 2px 0;">Ships:</td>
+                <td style="text-align: right; padding: 2px 0;">
+                    <span id="shipCounter" style="color: #fff;">0</span>
+                </td>
+            </tr>
+            <tr>
+                <td style="padding: 2px 0;">Effects:</td>
+                <td style="text-align: right; padding: 2px 0;">
+                    <span id="effectCounter" style="color: #fff;">0</span>
+                </td>
+            </tr>
+            <tr>
+                <td style="padding: 2px 0;">Memory:</td>
+                <td style="text-align: right; padding: 2px 0;">
+                    <span id="memoryCounter" style="color: #fff;">0</span> MB
+                </td>
+            </tr>
+        </table>
     </div>
 
     <!-- GAME CANVAS -->

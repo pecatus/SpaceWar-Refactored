@@ -12,7 +12,8 @@ import {
     stopAnimateLoop,
     selectStar,
     deselectStar,
-    cleanupScene
+    cleanupScene,
+    getSceneDebugInfo 
 } from './scene.js';
 
 /* ========================================================================== */
@@ -37,11 +38,11 @@ const SHIP_COST = {
 
 // Infrastructure limits (should match backend)
 const INFRA_LIMITS = {
-    1: { maxPop: 10, maxMines: 10, maxDefense: 2, maxShipyard: 2 },
-    2: { maxPop: 15, maxMines: 15, maxDefense: 4, maxShipyard: 3 },
-    3: { maxPop: 20, maxMines: 20, maxDefense: 6, maxShipyard: 4 },
-    4: { maxPop: 25, maxMines: 25, maxDefense: 8, maxShipyard: 4 },
-    5: { maxPop: 30, maxMines: 30, maxDefense: 10, maxShipyard: 4 }
+    1: { maxPop: 5,  maxMines: 5,  maxDefense: 1, maxShipyard: 1 },
+    2: { maxPop: 10, maxMines: 10, maxDefense: 2, maxShipyard: 2 },
+    3: { maxPop: 15, maxMines: 15, maxDefense: 4, maxShipyard: 3 },
+    4: { maxPop: 20, maxMines: 20, maxDefense: 6, maxShipyard: 4 },
+    5: { maxPop: 25, maxMines: 25, maxDefense: 8, maxShipyard: 4 }
 };
 
 /* ========================================================================== */
@@ -274,41 +275,127 @@ function setupEventListeners() {
         socket.emit('player_command', command);
     });
 
-    // Keyboard events
-    document.addEventListener('keydown', (event) => {
-        // --- UUSI ESC-NÄPPÄIMEN LOGIIKKA ---
-        if (event.key === 'Escape') {
-            // Jos olemme pelitilassa, siirry paussivalikkoon (eli päävalikkoon)
-            if (uiState === 'playing') {
-                pauseGame();        // Kerro serverille, että peli on paussilla
-                window.isPaused = true;
-                uiState = 'paused'; // Muuta clientin tilaa
-                updateUIState();    // Päivitä UI näyttämään päävalikko
-            }
-            // Jos olemme jo valikossa (pausella), palataan peliin
-            else if (uiState === 'paused') {
-                handleResumeGame(); // Tämä funktio hoitaa jo kaiken tarvittavan
-            }
+// Keyboard events
+document.addEventListener('keydown', (event) => {
+    // --- UUSI ESC-NÄPPÄIMEN LOGIIKKA ---
+    if (event.key === 'Escape') {
+        // Jos olemme pelitilassa, siirry paussivalikkoon (eli päävalikkoon)
+        if (uiState === 'playing') {
+            pauseGame();        // Kerro serverille, että peli on paussilla
+            window.isPaused = true;
+            uiState = 'paused'; // Muuta clientin tilaa
+            updateUIState();    // Päivitä UI näyttämään päävalikko
         }
-
-        // --- UUSI VÄLILYÖNNIN LOGIIKKA ---
-        // Tauottaa pelin, mutta pitää pelinäkymän esillä
-        else if (event.code === 'Space') {
-            // Toimii vain, jos olemme aktiivisessa pelinäkymässä
-            if (uiState === 'playing') {
-                event.preventDefault(); // Estää sivun vierittymisen (tärkeää!)
-                
-                // Vaihda paussitilan ja normaalitilan välillä
-                if (isPaused) {
-                    resumeGame();
-                    window.isPaused = false; 
-                } else {
-                    pauseGame();
-                    window.isPaused = true; 
+        // Jos olemme jo valikossa (pausella), palataan peliin
+        else if (uiState === 'paused') {
+            handleResumeGame(); // Tämä funktio hoitaa jo kaiken tarvittavan
+        }
+    }
+    
+    // --- F4 DEBUG KÄSITTELY ---
+    else if (event.key === 'F4') {
+        event.preventDefault();
+        
+        // Tarkista että debug-funktio on saatavilla
+        if (window.getSceneDebugInfo) {
+            const debug = window.getSceneDebugInfo();
+            const shipDetails = debug.shipsByStarDetails();
+            
+            console.log('=== SHIP TRACKING DEBUG ===');
+            console.log(`Total ships: ${debug.totalShips}`);
+            console.log(`Tracked ships: ${debug.trackedShips}`);
+            console.log(`Untracked ships: ${debug.untrackedShips}`);
+            console.log(`Tracking accuracy: ${debug.trackingAccuracy}%`);
+            console.log('');
+            console.log(`Stars with ships: ${debug.starsWithShips}`);
+            console.log(`Combat effects active: ${debug.combatEffects}`);
+            console.log(`Explosions active: ${debug.explosions}`);
+            console.log(`Stars to check: ${debug.starsToCheck}`);
+            console.log('');
+            
+            // Performance issues
+            if (debug.performanceIssues) {
+                const issues = debug.performanceIssues;
+                if (issues.tooManyCombatEffects || issues.tooManyStarsToCheck || issues.poorTrackingAccuracy) {
+                    console.log('⚠️  PERFORMANCE ISSUES DETECTED:');
+                    if (issues.tooManyCombatEffects) {
+                        console.log(`   - Too many combat effects (${debug.combatEffects} > 10)`);
+                    }
+                    if (issues.tooManyStarsToCheck) {
+                        console.log(`   - Too many stars being checked (${debug.starsToCheck} > 30)`);
+                    }
+                    if (issues.poorTrackingAccuracy) {
+                        console.log(`   - Poor tracking accuracy (${debug.trackingAccuracy}% < 95%)`);
+                    }
+                    console.log('');
                 }
             }
+            
+            console.log('Ships by star (top 10):');
+            shipDetails.details.slice(0, 10).forEach(star => {
+                console.log(`  ${star.starName}: ${star.shipCount} ships`);
+            });
+            
+            if (shipDetails.details.length > 10) {
+                console.log(`  ... and ${shipDetails.details.length - 10} more stars`);
+            }
+            
+            console.log('========================');
+            
+            // Jos on ongelmia, ehdota korjausta
+            if (debug.untrackedShips > 0 || debug.starsToCheck > 30) {
+                console.log('💡 TIP: Press F5 to run cleanup');
+            }
+        } else {
+            console.warn('Scene debug info not available yet');
         }
-    });
+    }
+
+    // Lisää F5 näppäin manuaaliseen siivoukseen:
+    else if (event.key === 'F5') {
+        event.preventDefault();
+        console.log('🧹 Running manual cleanup...');
+        
+        if (window.performMemoryCleanup) {
+            window.performMemoryCleanup();
+        }
+        
+        if (window.cleanupCombatChecks) {
+            window.cleanupCombatChecks();
+        }
+        
+        console.log('✅ Cleanup complete!');
+    }
+    
+    // --- F3 PERFORMANCE MONITOR ---
+    else if (event.key === 'F3') {
+        event.preventDefault();
+        const monitor = document.getElementById('performanceMonitor');
+        if (monitor) {
+            monitor.style.display = monitor.style.display === 'none' ? 'block' : 'none';
+        } else {
+            console.warn('Performance monitor element not found - add it to your HTML');
+        }
+    }
+
+    // --- UUSI VÄLILYÖNNIN LOGIIKKA ---
+    // Tauottaa pelin, mutta pitää pelinäkymän esillä
+    else if (event.code === 'Space') {
+        // Toimii vain, jos olemme aktiivisessa pelinäkymässä
+        if (uiState === 'playing') {
+            event.preventDefault(); // Estää sivun vierittymisen (tärkeää!)
+            
+            // Vaihda paussitilan ja normaalitilan välillä
+            if (isPaused) {
+                resumeGame();
+                window.isPaused = false; 
+            } else {
+                pauseGame();
+                window.isPaused = true; 
+            }
+        }
+    }
+});
     
     // Button hover sounds (simplified)
     document.querySelectorAll('button').forEach(button => {
@@ -769,26 +856,19 @@ function getOwnerName(ownerId) {
 }
 
 function showPlayerButtons(starData) {
-    const currentInfraLimits = INFRA_LIMITS[starData.infrastructureLevel] || INFRA_LIMITS[1];
-    
-    // Infrastructure button
-    const canUpgradeInfra = starData.infrastructureLevel < 5;
-    upgradeInfrastructureButton.style.display = canUpgradeInfra ? 'block' : 'none';
-    
-    // Shipyard buttons
+    // Näytä/piilota perusnapit (nämä säännöt pysyvät ennallaan)
     const hasShipyard = starData.shipyardLevel > 0;
     buildShipyardButton.style.display = !hasShipyard ? 'block' : 'none';
     upgradeShipyardButton.style.display = hasShipyard ? 'block' : 'none';
     
-    // Mine button
-    const canBuildMine = starData.mines < currentInfraLimits.maxMines;
-    buildMineButton.style.display = canBuildMine ? 'block' : 'none';
+    // Infrastructure aina näkyvissä kunnes max
+    upgradeInfrastructureButton.style.display = starData.infrastructureLevel < 5 ? 'block' : 'none';
     
-    // Defense button
-    const canUpgradeDefense = starData.defenseLevel < currentInfraLimits.maxDefense;
-    buildDefenseButton.style.display = canUpgradeDefense ? 'block' : 'none';
+    // Mine ja Defense aina näkyvissä
+    buildMineButton.style.display = 'block';
+    buildDefenseButton.style.display = 'block';
     
-    // Ship buttons
+    // Ship buttons (näkyvyys riippuu shipyard-tasosta)
     const shipButtons = [
         { button: buildFighterButton, requiredLevel: 1 },
         { button: buildDestroyerButton, requiredLevel: 2 },
@@ -802,7 +882,7 @@ function showPlayerButtons(starData) {
         }
     });
     
-    // Update button states (enabled/disabled)
+    // Päivitä nappien tilat (resurssit + rajat)
     updateButtonStates(starData);
 }
 
@@ -815,30 +895,132 @@ function hidePlayerButtons() {
 }
 
 function updateButtonStates(starData) {
-    // Update button enabled/disabled states based on resources and requirements
-    const buttons = [
-        { button: upgradeInfrastructureButton, cost: getInfrastructureCost(starData.infrastructureLevel) },
-        { button: buildShipyardButton, cost: { credits: 150, minerals: 100 } },
-        { button: upgradeShipyardButton, cost: getShipyardCost(starData.shipyardLevel) },
-        { button: buildMineButton, cost: { credits: 75, minerals: 25 } },
-        { button: buildDefenseButton, cost: { credits: 100, minerals: 50 } }
-    ];
+    const currentInfraLimits = INFRA_LIMITS[starData.infrastructureLevel] || INFRA_LIMITS[1];
     
-    buttons.forEach(({ button, cost }) => {
-        if (button && cost) {
-            const canAfford = playerResources.credits >= cost.credits && 
-                            playerResources.minerals >= cost.minerals;
-            button.disabled = !canAfford;
+    // Laske jonossa olevat
+    const planetaryQueue = starData.planetaryQueue || [];
+    const queuedMines = planetaryQueue.filter(item => item.type === 'Mine').length;
+    const queuedDefense = planetaryQueue.filter(item => item.type === 'Defense Upgrade').length;
+    const queuedShipyard = planetaryQueue.filter(item => 
+        item.type === 'Shipyard' || item.type.startsWith('Shipyard Lvl')).length;
+    const queuedInfra = planetaryQueue.filter(item => 
+        item.type.startsWith('Infrastructure')).length;
+    
+    // Infrastructure button
+    if (upgradeInfrastructureButton && upgradeInfrastructureButton.style.display !== 'none') {
+        const cost = getInfrastructureCost(starData.infrastructureLevel);
+        const canAffordIt = canAfford(cost);
+        const hasInfraInQueue = queuedInfra > 0;
+        
+        upgradeInfrastructureButton.disabled = !canAffordIt || hasInfraInQueue;
+        
+        if (hasInfraInQueue) {
+            upgradeInfrastructureButton.title = 'Infrastructure upgrade already in queue';
+        } else if (!canAffordIt) {
+            upgradeInfrastructureButton.title = `Insufficient resources (need ${cost.credits}C, ${cost.minerals}M)`;
+        } else {
+            upgradeInfrastructureButton.title = `Upgrade to Infrastructure Level ${starData.infrastructureLevel + 1}`;
         }
-    });
+    }
+    
+    // Shipyard buttons
+    if (buildShipyardButton && buildShipyardButton.style.display !== 'none') {
+        const cost = { credits: 150, minerals: 100 };
+        const canAffordIt = canAfford(cost);
+        const totalShipyards = starData.shipyardLevel + queuedShipyard;
+        const canBuildMore = totalShipyards < currentInfraLimits.maxShipyard;
+        
+        buildShipyardButton.disabled = !canAffordIt || !canBuildMore;
+        
+        if (!canBuildMore) {
+            buildShipyardButton.title = `Shipyard limit reached (${totalShipyards}/${currentInfraLimits.maxShipyard}) - Upgrade infrastructure first`;
+        } else if (!canAffordIt) {
+            buildShipyardButton.title = 'Insufficient resources (need 150C, 100M)';
+        } else {
+            buildShipyardButton.title = 'Build a shipyard to construct ships';
+        }
+    }
+    
+    if (upgradeShipyardButton && upgradeShipyardButton.style.display !== 'none') {
+        const cost = getShipyardCost(starData.shipyardLevel);
+        const canAffordIt = canAfford(cost);
+        const nextLevel = starData.shipyardLevel + 1;
+        const totalShipyards = starData.shipyardLevel + queuedShipyard;
+        const canUpgrade = nextLevel <= currentInfraLimits.maxShipyard && queuedShipyard === 0;
+        
+        upgradeShipyardButton.disabled = !canAffordIt || !canUpgrade;
+        
+        if (queuedShipyard > 0) {
+            upgradeShipyardButton.title = 'Shipyard upgrade already in queue';
+        } else if (nextLevel > currentInfraLimits.maxShipyard) {
+            upgradeShipyardButton.title = `Requires higher infrastructure level (current max: ${currentInfraLimits.maxShipyard})`;
+        } else if (!canAffordIt) {
+            upgradeShipyardButton.title = `Insufficient resources (need ${cost.credits}C, ${cost.minerals}M)`;
+        } else {
+            upgradeShipyardButton.title = `Upgrade to Shipyard Level ${nextLevel}`;
+        }
+    }
+    
+    // Mine button
+    if (buildMineButton) {
+        const cost = { credits: 75, minerals: 25 };
+        const canAffordIt = canAfford(cost);
+        const totalMines = starData.mines + queuedMines;
+        const canBuildMore = totalMines < currentInfraLimits.maxMines;
+        
+        buildMineButton.disabled = !canAffordIt || !canBuildMore;
+        
+        if (!canBuildMore) {
+            buildMineButton.title = `Mine limit reached (${totalMines}/${currentInfraLimits.maxMines})`;
+            if (queuedMines > 0) {
+                buildMineButton.title += ` - ${queuedMines} in queue`;
+            }
+        } else if (!canAffordIt) {
+            buildMineButton.title = 'Insufficient resources (need 75C, 25M)';
+        } else {
+            buildMineButton.title = `Build a mine (${totalMines}/${currentInfraLimits.maxMines})`;
+            if (queuedMines > 0) {
+                buildMineButton.title += ` - ${queuedMines} in queue`;
+            }
+        }
+    }
+    
+    // Defense button
+    if (buildDefenseButton) {
+        const cost = { credits: 100, minerals: 50 };
+        const canAffordIt = canAfford(cost);
+        const totalDefense = starData.defenseLevel + queuedDefense;
+        const canBuildMore = totalDefense < currentInfraLimits.maxDefense;
+        
+        buildDefenseButton.disabled = !canAffordIt || !canBuildMore;
+        
+        if (!canBuildMore) {
+            buildDefenseButton.title = `Defense limit reached (${totalDefense}/${currentInfraLimits.maxDefense})`;
+            if (queuedDefense > 0) {
+                buildDefenseButton.title += ` - ${queuedDefense} in queue`;
+            }
+        } else if (!canAffordIt) {
+            buildDefenseButton.title = 'Insufficient resources (need 100C, 50M)';
+        } else {
+            buildDefenseButton.title = `Upgrade planetary defense (${totalDefense}/${currentInfraLimits.maxDefense})`;
+            if (queuedDefense > 0) {
+                buildDefenseButton.title += ` - ${queuedDefense} in queue`;
+            }
+        }
+    }
     
     // Ship buttons
-    Object.entries(SHIP_COST).forEach(([shipType, [credits, minerals]]) => {
+    Object.entries(SHIP_COST).forEach(([shipType, [credits, minerals, buildTime]]) => {
         const button = document.getElementById(`build${shipType.replace(/ /g, '')}Button`);
-        if (button) {
-            const canAfford = playerResources.credits >= credits && 
-                            playerResources.minerals >= minerals;
-            button.disabled = !canAfford;
+        if (button && button.style.display !== 'none') {
+            const canAffordIt = canAfford({ credits, minerals });
+            button.disabled = !canAffordIt;
+            
+            if (!canAffordIt) {
+                button.title = `${shipType} - Insufficient resources (need ${credits}C, ${minerals}M)`;
+            } else {
+                button.title = `Build ${shipType} (${credits}C, ${minerals}M) - ${buildTime}s`;
+            }
         }
     });
 }
@@ -1346,6 +1528,44 @@ function updateResourceDisplay() {
     }
 }
 
+
+
+// Performance monitoring - vain UI-päivitys, ei FPS-laskentaa
+function updatePerformanceMonitor() {
+    const fpsCounter = document.getElementById('fpsCounter');
+    const shipCounter = document.getElementById('shipCounter');
+    const effectCounter = document.getElementById('effectCounter');
+    const memoryCounter = document.getElementById('memoryCounter');
+    
+    if (window.getSceneDebugInfo) {
+        const debug = window.getSceneDebugInfo();
+        
+        if (fpsCounter) {
+            fpsCounter.textContent = debug.fps || 0;
+            
+            // Värikoodaus FPS:lle
+            if (debug.fps >= 50) {
+                fpsCounter.style.color = '#00ff00'; // Vihreä
+            } else if (debug.fps >= 30) {
+                fpsCounter.style.color = '#ffff00'; // Keltainen  
+            } else {
+                fpsCounter.style.color = '#ff0000'; // Punainen
+            }
+        }
+        
+        if (shipCounter) shipCounter.textContent = debug.totalShips;
+        if (effectCounter) effectCounter.textContent = debug.combatEffects + debug.explosions;
+    }
+    
+    if (memoryCounter && performance.memory) {
+        const mb = Math.round(performance.memory.usedJSHeapSize / 1048576);
+        memoryCounter.textContent = mb;
+    }
+}
+
+// Päivitä UI 4 kertaa sekunnissa
+setInterval(updatePerformanceMonitor, 250);
+
 function canAfford(cost) {
     return playerResources.credits >= cost.credits && 
            playerResources.minerals >= cost.minerals;
@@ -1591,6 +1811,8 @@ function syncShipButtons() {
         }
     });
 }
+
+
 
 /* ========================================================================== */
 /*  EXPORTS & FINAL SETUP                                                     */
