@@ -154,12 +154,12 @@ socket.on('initial_state', (snap) => {
 
 // Receive game updates
 socket.on("game_diff", (diff) => {
-    console.log("📦 Received diff:", diff);
+    //console.log("📦 Received diff:", diff);
     
     // Debug SHIP_MOVING erikseen
     diff.forEach(action => {
         if (action.action === 'SHIP_MOVING') {
-            console.log("🚢 SHIP_MOVING received:", action);
+            //console.log("🚢 SHIP_MOVING received:", action);
         }
     });
     
@@ -331,7 +331,7 @@ document.addEventListener('keydown', (event) => {
                 }
             }
             
-            console.log('Ships by star (top 10):');
+            //console.log('Ships by star (top 10):');
             shipDetails.details.slice(0, 10).forEach(star => {
                 console.log(`  ${star.starName}: ${star.shipCount} ships`);
             });
@@ -775,7 +775,7 @@ function updateUIState() {
 /* ========================================================================== */
 
 function handleStarSelection(starData) {
-    console.log("🌟 Star selected:", starData);
+    //console.log("🌟 Star selected:", starData);
     
     if (!starData) {
         selectedStar = null;
@@ -1383,7 +1383,7 @@ function handleBuildShip(shipType) {
 }
 
 function sendConstructionCommand(starId, buildingType, cost) {
-    console.log(`🔨 Sending construction command: ${buildingType} at star ${starId}`);
+    //console.log(`🔨 Sending construction command: ${buildingType} at star ${starId}`);
     
     // Deduct resources locally for immediate feedback
     playerResources.credits -= cost.credits;
@@ -1422,12 +1422,12 @@ function sendConstructionCommand(starId, buildingType, cost) {
 
         // 3. Kutsutaan menun päivitystä, joka lukee muokatun selectedStar-olion
         showPlanetMenu(selectedStar);
-        console.log('[UI-UPDATE] Päivitetty planeettajono optimistisesti.');
+        //console.log('[UI-UPDATE] Päivitetty planeettajono optimistisesti.');
     }
 }
 
 function sendShipConstructionCommand(starId, shipType, cost) {
-    console.log(`🚀 Sending ship construction command: ${shipType} at star ${starId}`);
+    //console.log(`🚀 Sending ship construction command: ${shipType} at star ${starId}`);
     
     // Deduct resources locally for immediate feedback
     playerResources.credits -= cost.credits;
@@ -1462,7 +1462,7 @@ function sendShipConstructionCommand(starId, shipType, cost) {
         });
 
         showPlanetMenu(selectedStar);
-        console.log('[UI-UPDATE] Päivitetty alusjono optimistisesti.');
+        //console.log('[UI-UPDATE] Päivitetty alusjono optimistisesti.');
     }
 }
 
@@ -1634,7 +1634,7 @@ function updateUIFromDiff(diff) {
                         // Voit lisätä muita ominaisuuksia tarpeen mukaan
                     };
                     gameState.ships.push(newShipData);
-                    console.log(`[CLIENT-STATE] Lisätty uusi alus ${action.shipId} paikalliseen gameStateen. Aluksia yhteensä: ${gameState.ships.length}`);
+                    //console.log(`[CLIENT-STATE] Lisätty uusi alus ${action.shipId} paikalliseen gameStateen. Aluksia yhteensä: ${gameState.ships.length}`);
                 }
 
                 // Tämä alla oleva logiikka päivittää planeetan rakennusjonon,
@@ -1676,7 +1676,7 @@ function updateUIFromDiff(diff) {
             }
 
             case 'DEFENSE_DAMAGED':
-                console.log(`⚔️ Defense damaged at star ${action.starId}, new level: ${action.newLevel}`);
+                //console.log(`⚔️ Defense damaged at star ${action.starId}, new level: ${action.newLevel}`);
                 // Päivitä UI jos valittu tähti
                 if (selectedStar && selectedStar._id === action.starId) {
                     selectedStar.defenseLevel = action.newLevel;
@@ -1685,7 +1685,7 @@ function updateUIFromDiff(diff) {
             break;
 
             case 'SHIP_DESTROYED':
-                console.log(`💥 Ship destroyed: ${action.shipId}`);
+                //console.log(`💥 Ship destroyed: ${action.shipId}`);
                 // Scene.js hoitaa visuaalisen päivityksen ja selectedShips-käsittelyn
                 
                 if (gameState && gameState.ships) {
@@ -1695,7 +1695,7 @@ function updateUIFromDiff(diff) {
                     );
                     const finalCount = gameState.ships.length;
                     if (initialCount > finalCount) {
-                        console.log(`[CLIENT-STATE] Poistettu alus ${action.shipId}. Aluksia jäljellä: ${finalCount}`);
+                        //console.log(`[CLIENT-STATE] Poistettu alus ${action.shipId}. Aluksia jäljellä: ${finalCount}`);
                     }
                 }
                 
@@ -1710,7 +1710,7 @@ function updateUIFromDiff(diff) {
                     if (starToUpdate) {
                         // Päivitä kentät (tässä tapauksessa populaatio)
                         Object.assign(starToUpdate, action.updatedFields);
-                        console.log(`[CLIENT-STATE] Päivitetty tähden ${action.starId} populaatio arvoon ${action.updatedFields.population}`);
+                        //console.log(`[CLIENT-STATE] Päivitetty tähden ${action.starId} populaatio arvoon ${action.updatedFields.population}`);
 
                         // JOS PÄIVITETTY TÄHTI ON VALITTUNA, PÄIVITÄ MYÖS PLANET MENU
                         if (selectedStar && selectedStar._id.toString() === action.starId.toString()) {
@@ -1724,7 +1724,7 @@ function updateUIFromDiff(diff) {
                 break;
                             
             case 'RESOURCE_UPDATE':
-                console.log('📊 RESOURCE_UPDATE received:', action);
+                //console.log('📊 RESOURCE_UPDATE received:', action);
                 if (action.playerId === myPlayerId) {
                     const oldCredits = playerResources.credits;
                     const oldMinerals = playerResources.minerals;
@@ -1735,7 +1735,7 @@ function updateUIFromDiff(diff) {
                 break;
 
             case 'CONQUEST_STARTED':
-                console.log("⚔️ Conquest started at star", action.starId);
+                //console.log("⚔️ Conquest started at star", action.starId);
                 // Scene.js hoitaa visuaalisen päivityksen
                 break;
                 
@@ -1749,7 +1749,7 @@ function updateUIFromDiff(diff) {
                 break;
                 
             case 'CONQUEST_COMPLETE':
-                console.log("🏴 Conquest complete at star", action.starId);
+                //console.log("🏴 Conquest complete at star", action.starId);
                 if (selectedStar && selectedStar._id === action.starId) {
                     Object.assign(selectedStar, action.starData);
                     showPlanetMenu(selectedStar);
@@ -1757,7 +1757,7 @@ function updateUIFromDiff(diff) {
                 break;
                 
             case 'CONQUEST_HALTED':
-                console.log("🛑 Conquest halted at star", action.starId);
+                //console.log("🛑 Conquest halted at star", action.starId);
                 if (selectedStar && selectedStar._id === action.starId) {
                     selectedStar.conquestProgress = 0;
                     selectedStar.isBeingConqueredBy = null;

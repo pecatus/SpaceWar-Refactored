@@ -7,15 +7,14 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { BokehPass } from 'three/addons/postprocessing/BokehPass.js';
+
 
 /* ========================================================================== */
 /*  GLOBAALIT MUUTTUJAT                                                       */
 /* ========================================================================== */
-let scene, camera, renderer, controls, composer, bokeh;
+let scene, camera, renderer, controls, composer;
 let backgroundStars, nebulaSprites = [];
 let ready = false;
-let bokehFocusTarget = null;
 let animStarted = false;
 const clock = new THREE.Clock();
 let animationFrameId = null; // Lisätään viittaus animaatioloopin ID:hen
@@ -55,8 +54,41 @@ const STAR_GLOW_DEFAULT_SCALE = 6.0;
 const STAR_GLOW_HOVER_SCALE_FACTOR = 1.25;
 const STAR_GLOW_SELECTED_SCALE_FACTOR = 1.50;
 
+const frustum = new THREE.Frustum();
+const cameraMatrix = new THREE.Matrix4();
+
 const INDICATOR_BASE_COLOR = 0x6495ED;
 const INDICATOR_SPRITE_SCALE = 2.8;
+
+// Luo yksi InstancedMesh per alustyyppi
+const SHIP_INSTANCED_MESHES = {};
+const MAX_SHIPS_PER_TYPE = 1000;
+
+// Ship instance management
+const shipInstanceData = {
+    Fighter: { count: 0, matrices: [], colors: [], ids: new Map() },
+    Destroyer: { count: 0, matrices: [], colors: [], ids: new Map() },
+    Cruiser: { count: 0, matrices: [], colors: [], ids: new Map() },
+    'Slipstream Frigate': { count: 0, matrices: [], colors: [], ids: new Map() }
+};
+
+// Shipyard ring instances
+const SHIPYARD_RING_INSTANCES = {
+    level1: null,
+    level2: null,
+    level3: null,
+    level4: null
+};
+
+const MAX_SHIPYARDS = 100; // Max per level
+
+// Ring instance tracking
+const shipyardRingData = {
+    level1: { count: 0, rotations: [], speeds: [], starIds: [] },
+    level2: { count: 0, rotations: [], speeds: [], starIds: [] },
+    level3: { count: 0, rotations: [], speeds: [], starIds: [] },
+    level4: { count: 0, rotations: [], speeds: [], starIds: [] }
+};
 
 // Raycasting ja mouse
 const raycaster = new THREE.Raycaster();
@@ -69,7 +101,8 @@ const explosions = [];
 const combatEffects = new Map();
 const activeCombatStars = new Set(); // Tähdet joissa on aktiivinen taistelu
 const starsToCheck = new Set(); // Tähdet joita pitää tarkistaa
-let combatCheckTimer = 0; // Tarkistetaan vain muutaman framen välein
+let lastCombatCheck = 0; // Tarkistetaan vain muutaman framen välein
+const COMBAT_CHECK_INTERVAL = 500;
 let globalLaserPool = null;
 
 // Combat effect limits
@@ -258,11 +291,11 @@ let mineSpriteMaterial, popSpriteMaterial, shipyardSpriteMaterial;
 
 // apufunktio rakenteiden debuggaamiseen:
 function debugShipsByStarClient() {
-    console.log('[DEBUG] Ships by star:');
+    // console.log('[DEBUG] Ships by star:');
     shipsByStarClient.forEach((ships, starId) => {
         const star = starsById.get(starId);
         const starName = star?.userData?.starData?.name || 'Unknown';
-        console.log(`  ${starName}: ${ships.size} ships`);
+        // console.log(`  ${starName}: ${ships.size} ships`);
     });
 }
 
@@ -384,6 +417,7 @@ class ExplosionPool {
     }
     
     update(delta) {
+        if (frameSkipCounter % 2 !== 0) return;
         for (let i = this.active.length - 1; i >= 0; i--) {
             const explosion = this.active[i];
             if (!explosion.active) continue;
@@ -543,7 +577,7 @@ export function initThreeIfNeeded(mountTo = document.body) {
     if (ready) return;
     ready = true;
 
-    console.log("Initializing Three.js scene...");
+    // console.log("Initializing Three.js scene...");
 
     // Scene setup
     scene = new THREE.Scene();
@@ -589,6 +623,18 @@ export function initThreeIfNeeded(mountTo = document.body) {
     createBackgroundStarfield();
     createNebulaSprites();
     
+    // Alusta InstancedMesh systeemi
+    initShipInstances(); 
+    Object.values(SHIP_INSTANCED_MESHES).forEach(mesh => {
+        mesh.frustumCulled = false;
+        if (!scene.children.includes(mesh)) {
+            //console.log('Adding mesh to scene in init');
+            scene.add(mesh);
+        }
+    });
+
+    initShipyardRingInstances();
+
     // Indikaattori-materiaalit
     initIndicatorMaterials();
     
@@ -604,7 +650,7 @@ export function initThreeIfNeeded(mountTo = document.body) {
     // Responsive
     window.addEventListener('resize', onWindowResize, false);
 
-    console.log("Three.js scene initialized successfully");
+    // console.log("Three.js scene initialized successfully");
 }
 
 function setupPostProcessing() {
@@ -614,13 +660,131 @@ function setupPostProcessing() {
     starsPass.clear = true;
     composer.addPass(starsPass);
     
-    bokeh = new BokehPass(scene, camera, {
-        focus: 5000,
-        aperture: 0.15,     // Increased from 0.00015 for subtler effect
-        maxblur: 0.001        // Reduced from 0.01 for less blur
-    });
-    composer.addPass(bokeh);
 }
+
+
+function updateVisibleNebulas() {
+    cameraMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    frustum.setFromProjectionMatrix(cameraMatrix);
+    
+    nebulaSprites.forEach(sp => {
+        if (frustum.intersectsObject(sp)) {
+            sp.quaternion.copy(camera.quaternion);
+        }
+    });
+}
+
+function getShipGeometry(type) {
+    let geometry;
+    switch (type) {
+        case 'Destroyer':
+            geometry = new THREE.CylinderGeometry(0.7, 0.7, 4.5, 8);
+            geometry.rotateX(Math.PI / 2);
+            break;
+        case 'Cruiser':
+            geometry = new THREE.SphereGeometry(1.1, 18, 14);
+            geometry.scale(2.5, 1.8, 3.8);
+            break;
+        case 'Slipstream Frigate':
+            geometry = new THREE.ConeGeometry(1.2, 5, 4);
+            geometry.rotateX(Math.PI / 2);
+            geometry.scale(1, 0.7, 1.2);
+            break;
+        default: // Fighter
+            geometry = new THREE.ConeGeometry(1, 3, 4);
+            geometry.rotateX(Math.PI / 2);
+    }
+    return geometry;
+}
+
+function getShipMaterial(baseColor) {
+    return new THREE.MeshStandardMaterial({
+        color: baseColor,
+        emissive: baseColor,
+        emissiveIntensity: 0.3
+    });
+}
+
+function initShipInstances() {
+    // console.log('🎯 initShipInstances called, scene exists:', !!scene);
+    
+    ['Fighter', 'Destroyer', 'Cruiser', 'Slipstream Frigate'].forEach(type => {
+        const geometry = getShipGeometry(type);
+        
+        const material = new THREE.MeshStandardMaterial({
+            color: 0xffffff,
+            emissive: 0x000000,
+            emissiveIntensity: 0.3,
+            metalness: 0.3,  // LISÄYS: Hieman metallisuutta
+            roughness: 0.4
+        });
+        
+        const instancedMesh = new THREE.InstancedMesh(geometry, material, MAX_SHIPS_PER_TYPE);
+        instancedMesh.count = 0;
+        
+        const colors = new Float32Array(MAX_SHIPS_PER_TYPE * 3);
+        for (let i = 0; i < colors.length; i++) {
+            colors[i] = 1.0;
+        }
+        
+        instancedMesh.instanceColor = new THREE.InstancedBufferAttribute(colors, 3);
+        
+        // LISÄÄ TÄMÄ DEBUG
+        // console.log(`Adding ${type} to scene...`);
+        scene.add(instancedMesh);
+        //console.log(`${type} added to scene:`, scene.children.includes(instancedMesh));
+        
+        SHIP_INSTANCED_MESHES[type] = instancedMesh;
+        
+        //console.log(`Created InstancedMesh for ${type}`);
+    });
+}
+
+function initShipyardRingInstances() {
+    const tubeRadius = 0.25;
+    const baseRadius = 10; // Käytetään peruskokoa, skaalataan matriisissa
+    
+    const ringTilts = [
+        new THREE.Euler(THREE.MathUtils.degToRad(45), 0, 0),   // Lvl 1
+        new THREE.Euler(0, THREE.MathUtils.degToRad(-45), 0),  // Lvl 2
+        new THREE.Euler(0, 0, THREE.MathUtils.degToRad(-45)),  // Lvl 3
+        new THREE.Euler(THREE.MathUtils.degToRad(90), 0, 0)   // Lvl 4
+    ];
+    
+    const material = new THREE.MeshBasicMaterial({
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.9,
+        toneMapped: false
+    });
+    
+    ['level1', 'level2', 'level3', 'level4'].forEach((level, index) => {
+        const geometry = new THREE.TorusGeometry(baseRadius, tubeRadius, 16, 64); // Vähemmän segmenttejä
+        const instancedMesh = new THREE.InstancedMesh(geometry, material, MAX_SHIPYARDS);
+        instancedMesh.count = 0;
+        instancedMesh.frustumCulled = false;
+        // --- renkaat piirtyvät glow-spritejen päälle ---
+       instancedMesh.material.depthTest  = false; // älä hylkää pikseleitä syvyystestin takia
+       instancedMesh.material.depthWrite = false; // ei kirjoiteta syvyys­puskuriin
+       instancedMesh.renderOrder = 6;             // suurempi kuin glow-spritejen oletus (0)
+
+        // Aseta perusrotaatio kaikille tämän tason instansseille
+        const baseRotation = ringTilts[index];
+        instancedMesh.userData.baseRotation = baseRotation;
+        
+        scene.add(instancedMesh);
+        SHIPYARD_RING_INSTANCES[level] = instancedMesh;
+
+        // ==== DEBUG: saat instanssit devtools-konsolissa näkyviin ====
+        window.SHIPYARD_RING_INSTANCES = SHIPYARD_RING_INSTANCES; // poista kun et enää tarvitse
+            if (typeof process !== 'undefined' &&
+            process.env &&
+            process.env.NODE_ENV !== 'production') {
+            window.SHIPYARD_RING_INSTANCES = SHIPYARD_RING_INSTANCES;
+        }
+    });
+}
+
 
 function initIndicatorMaterials() {
     mineIndicatorTexture = createSquareTexture(new THREE.Color(INDICATOR_BASE_COLOR));
@@ -661,7 +825,7 @@ function createBackgroundStarfield() {
     });
 
     const starVertices = [];
-    for (let i = 0; i < 10000; i++) {
+    for (let i = 0; i < 5000; i++) {
         const x = THREE.MathUtils.randFloatSpread(4000);
         const y = THREE.MathUtils.randFloatSpread(4000);
         const z = THREE.MathUtils.randFloatSpread(4000);
@@ -689,7 +853,7 @@ function createNebulaSprites() {
     };
 
     // Pienet sumut
-    for (let i = 0; i < 350; i++) {
+    for (let i = 0; i < 200; i++) {
         const mat = MAT_SMALL[Math.floor(Math.random() * MAT_SMALL.length)].clone();
         mat.opacity *= 0.55;
         const spr = new THREE.Sprite(mat);
@@ -701,7 +865,7 @@ function createNebulaSprites() {
     }
 
     // Isot sumut
-    for (let i = 0; i < 60; i++) {
+    for (let i = 0; i < 40; i++) {
         const mat = MAT_BIG[Math.floor(Math.random() * MAT_BIG.length)].clone();
         mat.opacity *= 0.45;
         const spr = new THREE.Sprite(mat);
@@ -837,7 +1001,7 @@ function onCanvasMouseDown(event) {
 }
 
 function onCanvasMouseUp(event) {
-    if (event.button !== 0) return; // Vain LMB
+    if (event.button !== 0) return;
     
     const mouseUpPosition = new THREE.Vector2(event.clientX, event.clientY);
     let isDrag = false;
@@ -861,63 +1025,62 @@ function onCanvasMouseUp(event) {
         return;
     }
     
-    // Jos oli drag, älä käsittele valintoja
     if (isDrag) {
         controls.enabled = true;
         return;
     }
     
-    // NORMAALI KLIKKAUS - raycast kaikille objekteille
+    // NORMAALI KLIKKAUS
     mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
     mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
     raycaster.setFromCamera(mouse, camera);
     
-    // Kerää kaikki mahdolliset kohteet
-    const clickableObjects = [];
+    // Check stars first
+    const starMeshes = Array.from(starsById.values());
+    const starIntersects = raycaster.intersectObjects(starMeshes, false);
     
-    // Star meshit
-    starsById.forEach(starMesh => clickableObjects.push(starMesh));
+    if (starIntersects.length > 0) {
+        const clicked = starIntersects[0].object;
+        if (!event.shiftKey) {
+            deselectAllShips();
+        }
+        
+        const starData = clicked.userData.starData;
+        if (starData) {
+            selectStar(starData);
+        }
+        return;
+    }
     
-    // Ship meshit JA click targetit
-    shipsById.forEach(shipMesh => {
-        clickableObjects.push(shipMesh);
-        if (shipMesh.userData.clickTarget) {
-            clickableObjects.push(shipMesh.userData.clickTarget);
+    // Check virtual ships via instanced meshes
+    let closestShip = null;
+    let closestDistance = Infinity;
+    
+    // Test each ship type's instanced mesh
+    Object.entries(SHIP_INSTANCED_MESHES).forEach(([type, instancedMesh]) => {
+        const intersects = raycaster.intersectObject(instancedMesh, false);
+        
+        if (intersects.length > 0) {
+            const instanceId = intersects[0].instanceId;
+            
+            // Find which virtual ship this instance belongs to
+            shipsById.forEach(virtualShip => {
+                if (virtualShip.userData.shipType === type && 
+                    virtualShip.userData.instanceIndex === instanceId) {
+                    const dist = intersects[0].distance;
+                    if (dist < closestDistance) {
+                        closestDistance = dist;
+                        closestShip = virtualShip;
+                    }
+                }
+            });
         }
     });
     
-    const intersects = raycaster.intersectObjects(clickableObjects, false);
-    
-    if (intersects.length > 0) {
-        const clicked = intersects[0].object;
-        
-        // Tarkista onko click target
-        let actualObject = clicked;
-        if (clicked.userData && clicked.userData.isClickTarget) {
-            // Etsi varsinainen ship mesh
-            actualObject = Array.from(shipsById.values()).find(
-                mesh => mesh.userData.clickTarget === clicked
-            );
-        }
-        
-        // SHIP CLICK
-        if (actualObject && actualObject.userData && actualObject.userData.type === 'ship') {
-            handleShipClick(actualObject, event.shiftKey);
-        }
-        // STAR CLICK
-        else if (clicked.userData && clicked.userData.type === 'star') {
-            // Deselect ships kun klikataan tähteä (paitsi jos shift pohjassa)
-            if (!event.shiftKey) {
-                deselectAllShips();
-            }
-            
-            const starData = clicked.userData.starData;
-            if (starData) {
-                selectStar(starData);
-            }
-        }
+    if (closestShip) {
+        handleShipClick(closestShip, event.shiftKey);
     } else {
-        // TYHJÄ KLIKKAUS - deselect kaikki
+        // Empty click
         if (!event.shiftKey) {
             deselectAllShips();
             deselectStar();
@@ -929,12 +1092,9 @@ function onCanvasMouseUp(event) {
 function onCanvasRightClick(event) {
     event.preventDefault();
 
-    // Tarkista onko pausella
     if (window.isPaused) return;
-
     if (selectedShips.length === 0) return;
     
-    // RMB command - liikuta valittuja aluksia
     mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
     mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
     
@@ -1070,14 +1230,13 @@ function selectStar(starData) {
         });
     }
     
-    bokehFocusTarget = starData.mesh ? starData.mesh.position : null;
     
     // Emit event for UI
     window.dispatchEvent(new CustomEvent('starSelected', { detail: starData }));
 }
 
-function handleShipClick(shipMesh, additive = false) {
-    const shipOwnerId = shipMesh.userData.owner;
+function handleShipClick(virtualShip, additive = false) {
+    const shipOwnerId = virtualShip.userData.owner;
     const humanIdStr = typeof window.gameData?.humanPlayerId === 'object' ? 
                       window.gameData.humanPlayerId.toString() : 
                       window.gameData.humanPlayerId;
@@ -1085,31 +1244,29 @@ function handleShipClick(shipMesh, additive = false) {
     const isPlayerShip = shipOwnerId === humanIdStr;
     if (!isPlayerShip) return;
     
-    // Jos ei shift pohjassa, tyhjennä valinnat ensin
     if (!additive) {
         deselectAllShips();
     }
     
-    // Toggle valinta
-    const isCurrentlySelected = selectedShips.includes(shipMesh);
+    const isCurrentlySelected = selectedShips.includes(virtualShip);
     if (isCurrentlySelected) {
-        deselectShip(shipMesh);
+        deselectShip(virtualShip);
     } else {
-        selectShip(shipMesh);
+        selectShip(virtualShip);
     }
     
     updateSelectedUnitsDisplay();
 }
 
-function deselectShip(shipMesh) {
-    const index = selectedShips.indexOf(shipMesh);
+function deselectShip(virtualShip) {
+    const index = selectedShips.indexOf(virtualShip);
     if (index === -1) return;
     
     selectedShips.splice(index, 1);
-    shipMesh.userData.isSelected = false;
+    virtualShip.userData.isSelected = false;
     
-    // Palauta alkuperäinen väri
-    const shipData = shipMesh.userData.shipData;
+    // Restore original color
+    const shipData = virtualShip.userData.shipData;
     let originalColor = SHIP_COLOR_PLAYER;
     
     if (shipData.ownerId) {
@@ -1126,9 +1283,17 @@ function deselectShip(shipMesh) {
         }
     }
     
-    shipMesh.material.color.setHex(originalColor);
-    shipMesh.material.emissive.setHex(originalColor);
-    shipMesh.material.emissiveIntensity = 0.3;
+    // Update visual via instanced color
+    const type = virtualShip.userData.shipType;
+    const instancedMesh = SHIP_INSTANCED_MESHES[type];
+    const instanceIndex = virtualShip.userData.instanceIndex;
+    
+    if (instancedMesh && instanceIndex !== undefined) {
+        instancedMesh.setColorAt(instanceIndex, new THREE.Color(originalColor));
+        if (instancedMesh.instanceColor) {
+            instancedMesh.instanceColor.needsUpdate = true;
+        }
+    }
 }
 
 function deselectAllShips() {
@@ -1147,20 +1312,20 @@ function selectShipsInArea(startVec, endVec, additive = false) {
     const endX = Math.max(startVec.x, endVec.x);
     const endY = Math.max(startVec.y, endVec.y);
     
-    shipsById.forEach(shipMesh => {
-        const shipData = shipMesh.userData.shipData;
+    shipsById.forEach(virtualShip => {
+        const shipData = virtualShip.userData.shipData;
         
-        // Vain omat alukset
+        // Only own ships
         if (shipData.ownerId !== window.gameData?.humanPlayerId) return;
         
-        // Projektoi ruudulle
-        const screenPos = shipMesh.position.clone().project(camera);
+        // Project to screen
+        const screenPos = virtualShip.position.clone().project(camera);
         const sx = (screenPos.x + 1) / 2 * window.innerWidth;
         const sy = (-screenPos.y + 1) / 2 * window.innerHeight;
         
         if (sx >= startX && sx <= endX && sy >= startY && sy <= endY) {
-            if (!selectedShips.includes(shipMesh)) {
-                selectShip(shipMesh);
+            if (!selectedShips.includes(virtualShip)) {
+                selectShip(virtualShip);
             }
         }
     });
@@ -1178,54 +1343,56 @@ function updateSelectedUnitsDisplay() {
 function orderSelectedShipsToStar(targetStar) {
     if (selectedShips.length === 0) return;
     
-    console.log(`Ordering ${selectedShips.length} ships to star ${targetStar.name}`);
+    //console.log(`Ordering ${selectedShips.length} ships to star ${targetStar.name}`);
     
-    selectedShips.forEach(shipMesh => {
-        const shipData = shipMesh.userData.shipData;
+    selectedShips.forEach(virtualShip => {
+        const shipData = virtualShip.userData.shipData;
         
-        // Varmista että shipData ja sen _id on olemassa
         if (!shipData || !shipData._id) {
-            console.error("Ship without proper data:", shipMesh);
+            console.error("Virtual ship without proper data:", virtualShip);
             return;
         }
         
-        // Lähetä move-komento serverille
         const command = {
             action: 'MOVE_SHIP',
-            shipId: shipData._id,  // Tämä puuttui!
+            shipId: shipData._id,
             toStarId: targetStar._id,
-            fromStarId: shipData.parentStarId  // Lisää myös tämä helpottamaan
+            fromStarId: shipData.parentStarId
         };
         
-        console.log("Sending ship command:", command);
-        
-        // Lähetä komento
+        //console.log("Sending ship command:", command);
         window.dispatchEvent(new CustomEvent('shipCommand', { detail: command }));
     });
 }
 
-function selectShip(shipMesh) {
-    if (selectedShips.includes(shipMesh)) return;
+function selectShip(virtualShip) {
+    if (selectedShips.includes(virtualShip)) return;
     
-    // Tarkista että on oma alus - käytä userData.owner, ei shipData.ownerId!
-    const shipOwnerId = shipMesh.userData.owner;
+    const shipOwnerId = virtualShip.userData.owner;
     const humanIdStr = typeof window.gameData?.humanPlayerId === 'object' ? 
                       window.gameData.humanPlayerId.toString() : 
                       window.gameData.humanPlayerId;
     
     const isPlayerShip = shipOwnerId === humanIdStr;
     if (!isPlayerShip) {
-        console.log("Cannot select - not player ship. Owner:", shipOwnerId, "Human:", humanIdStr);
+        //console.log("Cannot select - not player ship. Owner:", shipOwnerId, "Human:", humanIdStr);
         return;
     }
     
-    selectedShips.push(shipMesh);
-    shipMesh.userData.isSelected = true;
+    selectedShips.push(virtualShip);
+    virtualShip.userData.isSelected = true;
     
-    // Päivitä visuaalista
-    shipMesh.material.color.setHex(SELECTED_SHIP_COLOR);
-    shipMesh.material.emissive.setHex(SELECTED_SHIP_COLOR);
-    shipMesh.material.emissiveIntensity = 0.8;
+    // Update visual via instanced color
+    const type = virtualShip.userData.shipType;
+    const instancedMesh = SHIP_INSTANCED_MESHES[type];
+    const instanceIndex = virtualShip.userData.instanceIndex;
+    
+    if (instancedMesh && instanceIndex !== undefined) {
+        instancedMesh.setColorAt(instanceIndex, new THREE.Color(SELECTED_SHIP_COLOR));
+        if (instancedMesh.instanceColor) {
+            instancedMesh.instanceColor.needsUpdate = true;
+        }
+    }
 }
 
 function deselectStar() {
@@ -1233,7 +1400,6 @@ function deselectStar() {
     if (selectionIndicatorMesh) {
         selectionIndicatorMesh.visible = false;
     }
-    bokehFocusTarget = null;
     
     // Emit event for UI
     window.dispatchEvent(new CustomEvent('starDeselected'));
@@ -1256,7 +1422,7 @@ function focusOnStar(starData) {
 }
 
 function focusOnPlayerHomeworld(starMesh) {
-    console.log("Focusing camera on player homeworld");
+    // console.log("Focusing camera on player homeworld");
     
     const targetPosition = starMesh.position.clone();
     const offset = new THREE.Vector3(0, 100, 220); // Same as initial camera offset
@@ -1265,23 +1431,12 @@ function focusOnPlayerHomeworld(starMesh) {
     camera.position.copy(targetPosition).add(offset);
     controls.update();
     
-    console.log("Camera focused on homeworld at", targetPosition);
+    // console.log("Camera focused on homeworld at", targetPosition);
 }
 
 /* ========================================================================== */
 /*  VISUAL UPDATES                                                            */
 /* ========================================================================== */
-
-function updateBokehFocus() {
-    if (!bokeh || !bokeh.materialBokeh) return;
-    
-    const wanted = bokehFocusTarget
-        ? camera.position.distanceTo(bokehFocusTarget)
-        : 1500;
-    
-    const cur = bokeh.materialBokeh.uniforms.focus.value;
-    bokeh.materialBokeh.uniforms.focus.value += (wanted - cur) * 0.1;
-}
 
 function updateAllStarVisuals() {
     // Reset all highlights
@@ -1377,21 +1532,39 @@ function updateExplosions(delta) {
 /* ========================================================================== */
 
 export function buildFromSnapshot(snap) {
-    console.log("Building from snapshot:", snap);
+    //console.log("Building from snapshot:", snap);
     
     if (!ready) {
         console.warn("Scene not ready, initializing first");
         initThreeIfNeeded();
     }
-    
+
+    // 1. Varmista, että alusten instanced‐meshit ovat scenessä
+    Object.entries(SHIP_INSTANCED_MESHES).forEach(([type, mesh]) => {
+        if (!scene.children.includes(mesh)) {
+            //console.log(`Re-adding ${type} InstancedMesh to scene`);
+            scene.add(mesh);
+        }
+    });
+
+    // Jos cleanupScene on nollannut renkaiden meshet, luo ne takaisin
+    if (Object.values(SHIPYARD_RING_INSTANCES).some(m => m === null)) {
+        initShipyardRingInstances();               // :contentReference[oaicite:0]{index=0}
+    }
+
+    // Lisää joka tason instanced-mesh takaisin sceneen tarvittaessa
+    Object.entries(SHIPYARD_RING_INSTANCES).forEach(([level, mesh]) => {
+        if (mesh && !scene.children.includes(mesh)) scene.add(mesh);
+    });
+
     if (nebulaSprites.length === 0) {
-        console.log("Recreating nebula sprites...");
+        //console.log("Recreating nebula sprites...");
         createNebulaSprites();
     }
 
     // --- UUSI: TYHJENNÄ HAKURAKENNE ---
     shipsByStarClient.clear();
-    console.log("[TRACKING] Cleared ship tracking structure");
+    //console.log("[TRACKING] Cleared ship tracking structure");
     // --- PÄIVITYS PÄÄTTYY ---
 
     if (snap.stars) {
@@ -1403,21 +1576,21 @@ export function buildFromSnapshot(snap) {
         spawnShips(snap.ships);
 
         // --- UUSI: VARMISTA ETTÄ KAIKKI ALUKSET ON HAKURAKENTEESSA ---
-        console.log(`[TRACKING] Initialized tracking for ${shipsById.size} ships`);
+        //console.log(`[TRACKING] Initialized tracking for ${shipsById.size} ships`);
         let trackedCount = 0;
         shipsByStarClient.forEach((ships, starId) => {
             trackedCount += ships.size;
         });
-        console.log(`[TRACKING] Total tracked ships: ${trackedCount}`);
+        //console.log(`[TRACKING] Total tracked ships: ${trackedCount}`);
         // --- PÄIVITYS PÄÄTTYY ---
     
     }
     
-    console.log("Scene built from snapshot");
+    //console.log("Scene built from snapshot");
 }
 
 function spawnStars(starList) {
-    const starGeometry = new THREE.SphereGeometry(5, 32, 32);
+    const starGeometry = new THREE.SphereGeometry(5, 16, 16);
     
     starList.forEach(starData => {
         if (starsById.has(starData._id)) return;
@@ -1531,138 +1704,159 @@ function createStarlanes(starList) {
     });
 }
 
+
+// 2. KORJAA spawnShips - count pitää päivittää oikein
 function spawnShips(shipList) {
+    //console.log('🚀 spawnShips called with', shipList.length, 'ships');
+    // Debug: tarkista että meshit ovat olemassa
+    Object.entries(SHIP_INSTANCED_MESHES).forEach(([type, mesh]) => {
+        if (!mesh) {
+            console.error(`InstancedMesh for ${type} is missing!`);
+        }
+    });
+    // Batch-käsittely tyypin mukaan
+    const shipsByType = {};
+    
     shipList.forEach(shipData => {
         if (shipsById.has(shipData._id)) return;
         
-        // Create ship geometry based on type
-        let shipGeometry;
-        if (shipData.type === 'Destroyer') {
-            shipGeometry = new THREE.CylinderGeometry(0.7, 0.7, 4.5, 8);
-            shipGeometry.rotateX(Math.PI / 2);
-        } else if (shipData.type === 'Cruiser') {
-            shipGeometry = new THREE.SphereGeometry(1.1, 18, 14);
-            shipGeometry.scale(2.5, 1.8, 3.8);
-        } else if (shipData.type === 'Slipstream Frigate') {
-            shipGeometry = new THREE.ConeGeometry(1.2, 5, 4);
-            shipGeometry.rotateX(Math.PI / 2);
-            shipGeometry.scale(1, 0.7, 1.2);
-        } else { // Fighter
-            shipGeometry = new THREE.ConeGeometry(1, 3, 4);
-            shipGeometry.rotateX(Math.PI / 2);
+        const type = shipData.type || 'Fighter';
+        if (!shipsByType[type]) shipsByType[type] = [];
+        shipsByType[type].push(shipData);
+    });
+    
+    // Käsittele jokainen tyyppi kerralla
+    Object.entries(shipsByType).forEach(([type, ships]) => {
+        const instancedMesh = SHIP_INSTANCED_MESHES[type];
+        if (!instancedMesh) {
+            console.error(`No InstancedMesh found for type: ${type}`);
+            return;
         }
         
-        // Värin määritys - varmista että gameData on käytettävissä
-        let shipColor = NEUTRAL_COLOR;
+        const data = shipInstanceData[type];
+        const dummy = new THREE.Object3D();
         
-        if (shipData.ownerId && window.gameData) {
-            // Vertailu string-muodossa varmuuden vuoksi
-            const ownerIdStr = typeof shipData.ownerId === 'object' ? 
-                              shipData.ownerId.toString() : shipData.ownerId;
-            const humanIdStr = typeof window.gameData.humanPlayerId === 'object' ? 
-                              window.gameData.humanPlayerId.toString() : 
-                              window.gameData.humanPlayerId;
-            
-            if (ownerIdStr === humanIdStr) {
-                shipColor = SHIP_COLOR_PLAYER;
-            } else {
-                // Etsi AI-pelaajan väri
-                const ownerPlayer = window.gameData.players.find(p => {
-                    const pIdStr = typeof p._id === 'object' ? p._id.toString() : p._id;
-                    return pIdStr === ownerIdStr;
-                });
+        ships.forEach(shipData => {
+            // Määritä väri
+            let shipColor = new THREE.Color(NEUTRAL_COLOR);
+            if (shipData.ownerId && window.gameData) {
+                const ownerIdStr = typeof shipData.ownerId === 'object' ? 
+                                  shipData.ownerId.toString() : shipData.ownerId;
+                const humanIdStr = typeof window.gameData.humanPlayerId === 'object' ? 
+                                  window.gameData.humanPlayerId.toString() : 
+                                  window.gameData.humanPlayerId;
                 
-                if (ownerPlayer && ownerPlayer.color) {
-                    shipColor = parseInt(ownerPlayer.color.replace('#', ''), 16);
+                if (ownerIdStr === humanIdStr) {
+                    shipColor.setHex(SHIP_COLOR_PLAYER);
+                } else {
+                    const ownerPlayer = window.gameData.players.find(p => {
+                        const pIdStr = typeof p._id === 'object' ? p._id.toString() : p._id;
+                        return pIdStr === ownerIdStr;
+                    });
+                    
+                    if (ownerPlayer && ownerPlayer.color) {
+                        shipColor.setHex(parseInt(ownerPlayer.color.replace('#', ''), 16));
+                    }
                 }
             }
-        }
-        
-        const shipMaterial = new THREE.MeshStandardMaterial({
-            color: shipColor,
-            emissive: shipColor,
-            emissiveIntensity: 0.3
+            
+            // Aseta positio
+            const offsetRadius = 15 + Math.random() * 6;
+            const randomAngle = Math.random() * Math.PI * 2;
+            
+            if (shipData.parentStarId) {
+                const parentStar = starsById.get(shipData.parentStarId);
+                if (parentStar) {
+                    dummy.position.copy(parentStar.position);
+                    dummy.position.x += offsetRadius * Math.cos(randomAngle);
+                    dummy.position.z += offsetRadius * Math.sin(randomAngle);
+                    dummy.position.y += (Math.random() - 0.5) * 2;
+                    dummy.lookAt(parentStar.position);
+                }
+            } else if (shipData.position) {
+                dummy.position.set(shipData.position.x, shipData.position.y, shipData.position.z);
+            }
+            
+            // KRIITTINEN: Varmista että skaalaus on oikein
+            dummy.scale.set(1, 1, 1);
+            dummy.updateMatrix();
+            
+            // Tallenna instance dataan
+            const instanceIndex = data.count;
+            data.matrices[instanceIndex] = dummy.matrix.clone();
+            data.colors[instanceIndex] = shipColor;
+            data.ids.set(shipData._id, instanceIndex);
+            
+            // Päivitä instanced mesh matriisi ja väri
+            instancedMesh.setMatrixAt(instanceIndex, dummy.matrix);
+            instancedMesh.setColorAt(instanceIndex, shipColor);
+            
+           
+            // Luo virtuaalinen ship objekti
+            const virtualShip = {
+                position: dummy.position.clone(),
+                rotation: dummy.rotation.clone(),
+                scale: dummy.scale.clone(),
+                matrix: dummy.matrix.clone(),
+                userData: {
+                    entityId: shipData._id,
+                    type: 'ship',
+                    owner: shipData.ownerId,
+                    shipType: type,
+                    instanceIndex: instanceIndex,
+                    shipData: {
+                        _id: shipData._id,
+                        type: shipData.type,
+                        ownerId: shipData.ownerId,
+                        parentStarId: shipData.parentStarId,
+                        state: shipData.state || 'orbiting',
+                        targetStarId: shipData.targetStarId || null,
+                        position: shipData.position
+                    },
+                    orbitAngle: randomAngle,
+                    orbitRadius: offsetRadius,
+                    orbitSpeed: 0.15 + Math.random() * 0.15,
+                    isSelected: false
+                },
+                // Lisää tarvittavat metodit
+                lookAt: function(target) {
+                    dummy.position.copy(this.position);
+                    dummy.lookAt(target);
+                    dummy.updateMatrix();
+                    
+                    const inst = SHIP_INSTANCED_MESHES[this.userData.shipType];
+                    if (inst) {
+                        inst.setMatrixAt(this.userData.instanceIndex, dummy.matrix);
+                        inst.instanceMatrix.needsUpdate = true;
+                    }
+                }
+            };
+            
+            shipsById.set(shipData._id, virtualShip);
+            
+            // Päivitä tracking
+            if (shipData.parentStarId) {
+                const starId = shipData.parentStarId;
+                if (!shipsByStarClient.has(starId)) {
+                    shipsByStarClient.set(starId, new Set());
+                }
+                shipsByStarClient.get(starId).add(virtualShip);
+            }
+            
+            data.count++;
         });
         
-        const shipMesh = new THREE.Mesh(shipGeometry, shipMaterial);
-        
-        // LISÄÄ SUUREMPI COLLISION-ALUE valittavuuteen
-        const clickTargetGeometry = new THREE.SphereGeometry(3, 8, 6);
-        const clickTargetMaterial = new THREE.MeshBasicMaterial({ 
-            visible: false,
-            transparent: true,
-            opacity: 0
-        });
-        const clickTarget = new THREE.Mesh(clickTargetGeometry, clickTargetMaterial);
-        clickTarget.userData = {
-            shipData: shipData,
-            isClickTarget: true
-        };
-        
-        // Orbitointidatan alustus
-        const offsetRadius = 15 + Math.random() * 6;
-        const randomAngle = Math.random() * Math.PI * 2;
-        const orbitSpeed = 0.15 + Math.random() * 0.15;
-        
-        // Position ship orbitoimaan parent staria
-        if (shipData.parentStarId) {
-            const parentStar = starsById.get(shipData.parentStarId);
-            if (parentStar) {
-                shipMesh.position.copy(parentStar.position);
-                shipMesh.position.x += offsetRadius * Math.cos(randomAngle);
-                shipMesh.position.z += offsetRadius * Math.sin(randomAngle);
-                shipMesh.position.y += (Math.random() - 0.5) * 2;
-                
-                // Click target seuraa meshin sijaintia
-                clickTarget.position.copy(shipMesh.position);
-            }
-        } else if (shipData.position) {
-            shipMesh.position.set(shipData.position.x, shipData.position.y, shipData.position.z);
-            clickTarget.position.copy(shipMesh.position);
-        }
-        
-        // ASETA KAIKKI USERDATA KERRALLA TÄSSÄ
-        shipMesh.userData = {
-            // Entity tunnisteet
-            entityId: shipData._id,
-            type: 'ship',
-            owner: shipData.ownerId,
-            
-            // Ship data kokonaisuudessaan
-            shipData: {
-                _id: shipData._id,
-                type: shipData.type,
-                ownerId: shipData.ownerId,
-                parentStarId: shipData.parentStarId,
-                state: shipData.state || 'orbiting',
-                targetStarId: shipData.targetStarId || null,
-                position: shipData.position
-            },
-            
-            // Orbitointi data
-            orbitAngle: randomAngle,
-            orbitRadius: offsetRadius,
-            orbitSpeed: orbitSpeed,
-            isSelected: false,
-            clickTarget: clickTarget
-        };
+        // KRIITTINEN: Päivitä instance count ja bufferit
+        instancedMesh.count = data.count;
+        instancedMesh.instanceMatrix.needsUpdate = true;
+        instancedMesh.instanceColor.needsUpdate = true; // OIKEA LIPPU
 
-        scene.add(shipMesh);
-        scene.add(clickTarget);
-        shipsById.set(shipData._id, shipMesh);
 
-        // --- UUSI: LISÄÄ ALUS HAKURAKENTEESEEN ---
-        if (shipData.parentStarId) {
-            const starId = shipData.parentStarId;
-            if (!shipsByStarClient.has(starId)) {
-                shipsByStarClient.set(starId, new Set());
-            }
-            shipsByStarClient.get(starId).add(shipMesh);
-            console.log(`[SPAWN] Added ship ${shipData._id} to star ${starId} tracking`);
-        }
-
+        
+        //console.log(`Updated ${type} InstancedMesh: ${data.count} instances`);
     });
 }
+
 
 function updateDefenseRings(starData, starMesh) {
     // Poista vanhat renkaat
@@ -1743,7 +1937,51 @@ function removeOldIndicators(starData) {
     // Shipyard indicator
     if (starData.shipyardIndicatorSprite) {
         scene.remove(starData.shipyardIndicatorSprite);
+        if (starData.shipyardIndicatorSprite.material) {
+            starData.shipyardIndicatorSprite.material.dispose();
+        }
         starData.shipyardIndicatorSprite = null;
+    }
+
+    // Shipyard rings - poista instanssit
+    if (starData.shipyardRingInstances) {
+        starData.shipyardRingInstances.forEach(ringRef => {
+            const data = shipyardRingData[ringRef.level];
+            const instancedMesh = SHIPYARD_RING_INSTANCES[ringRef.level];
+
+           // Jos poistettava on JOUKON VIIMEINEN, pienennä count-lukua.
+           // Muussa tapauksessa piilotetaan instanssi skaalalla 0
+           const dummy = new THREE.Object3D();
+            data.rotations[ringRef.index] = null;
+            data.speeds[ringRef.index]    = null;
+            data.starIds[ringRef.index]   = null;
+
+            // Jos poistetaan viimeinen käytetty instanssi, pudota count-arvoa
+            if (ringRef.index === data.count - 1) {
+                // poistetaan viimeinen → pelkkä count--
+                data.count--;
+                instancedMesh.count = data.count;
+            } else {
+                // korvaa poistettava instanssi muuttamalla viimeinen tilalle
+                const last = data.count - 1;
+
+                // 1) kopioi matriisi
+                instancedMesh.getMatrixAt(last, dummy.matrix);
+                instancedMesh.setMatrixAt(ringRef.index, dummy.matrix);
+
+                // 2) kopioi metadata
+                data.rotations[ringRef.index] = data.rotations[last];
+                data.speeds[ringRef.index]    = data.speeds[last];
+                data.starIds[ringRef.index]   = data.starIds[last];
+
+                // 3) nollaa viimeinen slotti ja pudota count
+                data.rotations[last] = data.speeds[last] = data.starIds[last] = null;
+                data.count--;
+                instancedMesh.count = data.count;
+            }
+            instancedMesh.instanceMatrix.needsUpdate = true;
+        });
+        starData.shipyardRingInstances = [];
     }
     
     // Shipyard rings
@@ -1833,7 +2071,7 @@ function updateShipyardIndicator(starData, starMesh) {
     const yOffset = starRadius + INDICATOR_SPRITE_SCALE * 1.5 +
                    (starData.defenseLevel ? starData.defenseLevel * 1.5 + 1.0 : 0);
     
-    // Shipyard sprite
+    // Shipyard sprite (säilytetään ennallaan)
     const sprite = new THREE.Sprite(shipyardSpriteMaterial.clone());
     let baseColor = getIndicatorColor(starData.ownerId);
     sprite.material.color.copy(baseColor).lerp(new THREE.Color(0xffffff), 0.3);
@@ -1847,45 +2085,49 @@ function updateShipyardIndicator(starData, starMesh) {
     scene.add(sprite);
     starData.shipyardIndicatorSprite = sprite;
     
-    // Shipyard level rings (kiertorata-renkaat)
-    starData.shipyardRings = [];
-    const tubeRadius = 0.25;
-    const baseRadius = starRadius + INDICATOR_SPRITE_SCALE * 3;
+    // Shipyard rings - käytä instansseja
+    starData.shipyardRingInstances = []; // Tallennetaan vain indeksit
+    const baseRingRadius = starRadius + INDICATOR_SPRITE_SCALE * 3;
     
-    const ringTilts = [
-        new THREE.Euler(THREE.MathUtils.degToRad(45), 0, 0),   // Lvl 1
-        new THREE.Euler(0, THREE.MathUtils.degToRad(-45), 0),  // Lvl 2
-        new THREE.Euler(0, 0, THREE.MathUtils.degToRad(-45)),  // Lvl 3
-        new THREE.Euler(THREE.MathUtils.degToRad(90), 0, 0)   // Lvl 4
-    ];
+    const dummy = new THREE.Object3D();
     
     for (let lvl = 1; lvl <= starData.shipyardLevel && lvl <= 4; lvl++) {
-        const ringGeom = new THREE.TorusGeometry(
-            baseRadius, tubeRadius, 32, 256
-        );
-        const ringMat = new THREE.MeshBasicMaterial({
-            color: 0xffffff,
-            transparent: true,
-            opacity: 0.9,
-            toneMapped: false
-        });
-        const ring = new THREE.Mesh(ringGeom, ringMat);
+        const levelKey = `level${lvl}`;
+        const instancedMesh = SHIPYARD_RING_INSTANCES[levelKey];
+        const data = shipyardRingData[levelKey];
         
-        if (ringTilts[lvl - 1]) {
-            ring.rotation.copy(ringTilts[lvl - 1]);
-        }
+        const instanceIndex = data.count;
         
-        // Pyörimisdata animaatiota varten
+        // Aseta positio ja skaalaus
+        dummy.position.copy(starMesh.position);
+        const scaleRatio = baseRingRadius / 10; // 10 on base radius geometriassa
+        dummy.scale.set(scaleRatio, scaleRatio, scaleRatio);
+        
+        // Aseta perusrotaatio
+        dummy.rotation.copy(instancedMesh.userData.baseRotation);
+        dummy.updateMatrix();
+        
+        // Tallenna instanssiin
+        instancedMesh.setMatrixAt(instanceIndex, dummy.matrix);
+        
+        // Tallenna metadata
         const speed = 0.35;
-        ring.userData.spin = {
-            x: lvl === 2 ? speed : 0,
-            y: (lvl === 1 || lvl === 3) ? speed : (lvl === 4 ? -speed : 0),
-            z: 0
+        const speedMultipliers = {
+            level1: { x: 0, y: speed, z: 0 },
+            level2: { x: speed, y: 0, z: 0 },
+            level3: { x: 0, y: speed, z: 0 },
+            level4: { x: 0, y: -speed, z: 0 }
         };
         
-        ring.position.copy(starMesh.position);
-        scene.add(ring);
-        starData.shipyardRings.push(ring);
+        data.rotations[instanceIndex] = { x: 0, y: 0, z: 0 };
+        data.speeds[instanceIndex] = speedMultipliers[levelKey];
+        data.starIds[instanceIndex] = starData._id;
+        
+        starData.shipyardRingInstances.push({ level: levelKey, index: instanceIndex });
+        
+        data.count++;
+        instancedMesh.count = data.count;
+        instancedMesh.instanceMatrix.needsUpdate = true;
     }
 }
 
@@ -1898,23 +2140,45 @@ function getIndicatorColor(ownerId) {
 // Lisää animate looppiin shipyard-renkaiden pyöritys
 // (updateOrbitingShips funktion jälkeen):
 function updateShipyardRings(delta) {
-    starsById.forEach(starMesh => {
-        const starData = starMesh.userData.starData;
-        if (starData && starData.shipyardRings) {
-            starData.shipyardRings.forEach(ring => {
-                const spin = ring.userData.spin;
-                if (spin) {
-                    ring.rotation.x += spin.x * delta;
-                    ring.rotation.y += spin.y * delta;
-                    ring.rotation.z += spin.z * delta;
-                }
-            });
+    const dummy = new THREE.Object3D();
+    
+    ['level1', 'level2', 'level3', 'level4'].forEach(level => {
+        const instancedMesh = SHIPYARD_RING_INSTANCES[level];
+        const data = shipyardRingData[level];
+        
+        if (data.count === 0) return;
+        
+        for (let i = 0; i < data.count; i++) {
+            
+            if (!data.rotations[i]) continue; 
+            // Hae nykyinen matriisi
+            instancedMesh.getMatrixAt(i, dummy.matrix);
+            dummy.matrix.decompose(dummy.position, dummy.quaternion, dummy.scale);
+            
+            // Päivitä rotaatio
+            const rotation = data.rotations[i];
+            const speed = data.speeds[i];
+            
+            rotation.x += speed.x * delta;
+            rotation.y += speed.y * delta;
+            rotation.z += speed.z * delta;
+            
+            // Yhdistä perusrotaatio ja animaatiorotaatio
+            dummy.rotation.copy(instancedMesh.userData.baseRotation);
+            dummy.rotateX(rotation.x);
+            dummy.rotateY(rotation.y);
+            dummy.rotateZ(rotation.z);
+            
+            dummy.updateMatrix();
+            instancedMesh.setMatrixAt(i, dummy.matrix);
         }
+        
+        instancedMesh.instanceMatrix.needsUpdate = true;
     });
 }
 
 export function applyDiff(diffArr = []) {
-    console.log("Applying diff:", diffArr);
+    //console.log("Applying diff:", diffArr);
     
     diffArr.forEach(act => {
         switch (act.action) {
@@ -1938,7 +2202,7 @@ export function applyDiff(diffArr = []) {
                     }
                 }
                 
-                console.log(`${act.type} completed at star ${act.starId}`);
+                //console.log(`${act.type} completed at star ${act.starId}`);
                 break;
             }
 
@@ -1964,7 +2228,7 @@ export function applyDiff(diffArr = []) {
                 star.defenseLevel = act.newLevel;
                 updateDefenseRings(star, starMesh);
                 
-                console.log(`Defense damaged at star ${act.starId}, new level: ${act.newLevel}`);
+                //console.log(`Defense damaged at star ${act.starId}, new level: ${act.newLevel}`);
                 break;
             }
             
@@ -1991,13 +2255,13 @@ export function applyDiff(diffArr = []) {
                         shipsByStarClient.set(starId, new Set());
                     }
                     shipsByStarClient.get(starId).add(shipMesh);
-                    console.log(`[SHIP-TRACKING] Added ship ${act.shipId} to star ${starId}`);
+                    //console.log(`[SHIP-TRACKING] Added ship ${act.shipId} to star ${starId}`);
                 }
                 
                 // LISÄÄ TÄMÄ: Merkitse tähti tarkistettavaksi combatille
                 markStarForCombatCheck(act.starId);
                 
-                console.log(`[SHIP_SPAWNED] Ship ${act.shipId} spawned at star ${act.starId}`);
+                //console.log(`[SHIP_SPAWNED] Ship ${act.shipId} spawned at star ${act.starId}`);
                 break;
             }
             
@@ -2011,7 +2275,7 @@ export function applyDiff(diffArr = []) {
                 const departureStarId = sd.parentStarId || act.fromStarId;
                 if (departureStarId && shipsByStarClient.has(departureStarId)) {
                     shipsByStarClient.get(departureStarId).delete(mesh);
-                    console.log(`[SHIP-TRACKING] Removed ship ${act.shipId} from star ${departureStarId}`);
+                    //console.log(`[SHIP-TRACKING] Removed ship ${act.shipId} from star ${departureStarId}`);
                 }
 
                 // TALLENNA LÄHTÖTÄHTI ENNEN NOLLAUSTA
@@ -2050,7 +2314,7 @@ export function applyDiff(diffArr = []) {
                     }
                 }
 
-                console.log(`Ship ${act.shipId} moving ${act.fromStarId || sd.departureStarId} → ${act.toStarId} @v=${act.speed}`);
+                //console.log(`Ship ${act.shipId} moving ${act.fromStarId || sd.departureStarId} → ${act.toStarId} @v=${act.speed}`);
                 
                 // Merkitse lähtötähti tarkistettavaksi (combat check)
                 markStarForCombatCheck(sd.departureStarId);
@@ -2060,7 +2324,7 @@ export function applyDiff(diffArr = []) {
             case 'SHIP_ARRIVED': {
                 // Jos alus ei ole vielä spawnattu, luo se nyt
                 if (!shipsById.has(act.shipId)) {
-                    console.log(`[SHIP_ARRIVED] Ship not found: ${act.shipId}, creating it now...`);
+                    //console.log(`[SHIP_ARRIVED] Ship not found: ${act.shipId}, creating it now...`);
                     
                     // Luo alus minimal datalla
                     const recoveryShipData = {
@@ -2083,7 +2347,7 @@ export function applyDiff(diffArr = []) {
                                 shipsByStarClient.set(act.atStarId, new Set());
                             }
                             shipsByStarClient.get(act.atStarId).add(shipMesh);
-                            console.log(`[RECOVERY] Ship ${act.shipId} recovered and added to tracking`);
+                            //console.log(`[RECOVERY] Ship ${act.shipId} recovered and added to tracking`);
                         }
                     }, 10);
                     
@@ -2136,12 +2400,12 @@ export function applyDiff(diffArr = []) {
                     shipsByStarClient.set(atStarId, new Set());
                 }
                 shipsByStarClient.get(atStarId).add(shipMesh);
-                console.log(`[SHIP-TRACKING] Added ship ${act.shipId} to star ${atStarId} (arrival)`);
+                //console.log(`[SHIP-TRACKING] Added ship ${act.shipId} to star ${atStarId} (arrival)`);
 
                 // Merkitse tähti tarkistettavaksi
                 markStarForCombatCheck(act.atStarId);
                 
-                console.log(`[VISUAL] Ship ${act.shipId} placed in orbit around ${starMesh.userData.starData.name}`);
+                //console.log(`[VISUAL] Ship ${act.shipId} placed in orbit around ${starMesh.userData.starData.name}`);
                 break;
             }
 
@@ -2153,7 +2417,7 @@ export function applyDiff(diffArr = []) {
                 const effect = new CombatEffectGroup(starMesh, scene);
                 combatEffects.set(act.starId, effect);
                 
-                console.log("⚔️ Combat effects started at star", act.starId);
+                //console.log("⚔️ Combat effects started at star", act.starId);
                 break;
             }
 
@@ -2185,52 +2449,54 @@ export function applyDiff(diffArr = []) {
                         delete starMesh.userData.conquestRing;
                         starMesh.userData.conquestRing = null;
                         
-                        console.log("🛑 Conquest halted, ring removed");
+                        //console.log("🛑 Conquest halted, ring removed");
                     }
                 }
                 break;
             }
 
             case 'SHIP_DESTROYED': {
-                const shipMesh = shipsById.get(act.shipId);
-                if (shipMesh) {
-                    const parentStarId = shipMesh.userData.shipData?.parentStarId;
-                    if (parentStarId && shipsByStarClient.has(parentStarId)) {
-                        shipsByStarClient.get(parentStarId).delete(shipMesh);
-                        console.log(`[SHIP-TRACKING] Removed destroyed ship ${act.shipId} from star ${parentStarId}`);
-                    }
-                    spawnExplosion(shipMesh.position);
-
-                    const selectedIndex = selectedShips.indexOf(shipMesh);
-                    if (selectedIndex > -1) {
-                        selectedShips.splice(selectedIndex, 1);
-                        updateSelectedUnitsDisplay();
-                    }
-
-                    scene.remove(shipMesh);
-                    if (shipMesh.userData.clickTarget) {
-                        scene.remove(shipMesh.userData.clickTarget);
-                    }
-
-                    // --- KRIITTINEN KORJAUS TÄSSÄ ---
-                    // Vapauta geometria ja materiaali GPU:n muistista
-                    if (shipMesh.geometry) {
-                        shipMesh.geometry.dispose();
-                    }
-                    if (shipMesh.material) {
-                        // Jos materiaaleja on useita (array), käy ne läpi
-                        if (Array.isArray(shipMesh.material)) {
-                            shipMesh.material.forEach(material => material.dispose());
-                        } else {
-                            shipMesh.material.dispose();
-                        }
-                    }
-                    // --- KORJAUS PÄÄTTYY ---
-
-                    shipsById.delete(act.shipId);
-                    const starId = shipMesh.userData.shipData?.parentStarId;
-                    markStarForCombatCheck(starId);
+                const virtualShip = shipsById.get(act.shipId);
+                if (!virtualShip) break;
+                
+                const parentStarId = virtualShip.userData.shipData?.parentStarId;
+                if (parentStarId && shipsByStarClient.has(parentStarId)) {
+                    shipsByStarClient.get(parentStarId).delete(virtualShip);
                 }
+                
+                // Spawn explosion at ship position
+                spawnExplosion(virtualShip.position);
+                
+                // Remove from selection
+                const selectedIndex = selectedShips.indexOf(virtualShip);
+                if (selectedIndex > -1) {
+                    selectedShips.splice(selectedIndex, 1);
+                    updateSelectedUnitsDisplay();
+                }
+                
+                // "Piilota" alus instanced meshista
+                const type = virtualShip.userData.shipType;
+                const instanceIndex = virtualShip.userData.instanceIndex;
+                const instancedMesh = SHIP_INSTANCED_MESHES[type];
+                
+                if (instancedMesh && instanceIndex !== undefined) {
+                    // Skaalaa 0:ksi piilottaaksesi
+                    const dummy = new THREE.Object3D();
+                    dummy.position.copy(virtualShip.position);
+                    dummy.scale.set(0, 0, 0);
+                    dummy.updateMatrix();
+                    
+                    instancedMesh.setMatrixAt(instanceIndex, dummy.matrix);
+                    instancedMesh.instanceMatrix.needsUpdate = true;
+                }
+                
+                // Remove from tracking
+                shipsById.delete(act.shipId);
+                
+                const starId = virtualShip.userData.shipData?.parentStarId;
+                markStarForCombatCheck(starId);
+                
+                //console.log(`Destroyed ship ${act.shipId} (hidden instance ${instanceIndex})`);
                 break;
             }
 
@@ -2243,7 +2509,7 @@ export function applyDiff(diffArr = []) {
                 const ring = createConquestRing(starMesh, conquerorColor);
                 starMesh.userData.conquestRing = ring;
                 
-                console.log("⚔️ Conquest ring created for star", act.starId);
+                //console.log("⚔️ Conquest ring created for star", act.starId);
                 break;
             }
 
@@ -2299,7 +2565,7 @@ export function applyDiff(diffArr = []) {
 
                 updateStarIndicators(starMesh.userData.starData, starMesh);
                 
-                console.log("🏴 Conquest complete, star color updated");
+                //console.log("🏴 Conquest complete, star color updated");
                 break;
             }
 
@@ -2315,10 +2581,19 @@ export function startAnimateLoop() {
     if (animStarted) return; // Estä useat loopit
     animStarted = true;
     clock.start();
-    console.log("Starting animation loop...");
+    // console.log("Starting animation loop...");
 
     function loop() {
+        if (fpsStats.frameTime > 20) { // Yli 20ms = alle 50fps
+            frameSkipCounter++;
+            if (frameSkipCounter % 2 !== 0) {
+                requestAnimationFrame(loop);
+                return; // Skippaa joka toinen frame
+            }
+        }
+        
         if (!animStarted) return; // Pysäytetään looppi, jos lippu on false
+        
         animationFrameId = requestAnimationFrame(loop);
 
         // FPS JA FRAME TIME LASKENTA
@@ -2376,7 +2651,6 @@ export function startAnimateLoop() {
 
 
         if (controls) controls.update();
-        updateBokehFocus();
         if (selectionIndicatorMesh && selectionIndicatorMesh.visible) {
             selectionIndicatorMesh.rotation.y += 0.5 * delta;
         }
@@ -2384,7 +2658,7 @@ export function startAnimateLoop() {
 
         
         updateAllStarVisuals();
-        nebulaSprites.forEach(sp => sp.quaternion.copy(camera.quaternion));
+        updateVisibleNebulas()
         
         if (composer) {
             composer.render();
@@ -2403,13 +2677,14 @@ export function stopAnimateLoop() {
     }
     animStarted = false;
     clock.stop();
-    console.log("Animation loop stopped.");
+    // console.log("Animation loop stopped.");
 }
 
+
 function checkForCombatSituations(delta) {
-    combatCheckTimer += delta;
-    if (combatCheckTimer < 0.1) return; // Tarkista 10 kertaa sekunnissa
-    combatCheckTimer = 0;
+    const now = performance.now();
+    if (now - lastCombatCheck < COMBAT_CHECK_INTERVAL) return;   // aja 4× sekunnissa
+    lastCombatCheck = now;
 
     // --- LISÄÄ SUORITUSKYVYN MITTAUS ---
     const startTime = performance.now();
@@ -2431,7 +2706,7 @@ function checkForCombatSituations(delta) {
         if (!shipsAtStarSet || shipsAtStarSet.size === 0) {
             // Jos täällä oli taistelu, lopeta se
             if (combatEffects.has(starId)) {
-                console.log("✅ [CLIENT] Combat ended at star", starId, "- no ships");
+                //console.log("✅ [CLIENT] Combat ended at star", starId, "- no ships");
                 const effect = combatEffects.get(starId);
                 effect.cleanup();
                 combatEffects.delete(starId);
@@ -2461,9 +2736,9 @@ function checkForCombatSituations(delta) {
 
         if (needsCombat) {
             if (!combatEffects.has(starId)) {
-                console.log("⚔️ [CLIENT] Combat situation detected at star", starId);
-                console.log(`   - Ships: ${shipsAtStarSet.size}, Factions: ${Array.from(factions).map(f => f.slice(-4)).join(', ')}`);
-                console.log(`   - Star owner: ${starOwnerId?.slice(-4) || 'neutral'}, Defense: ${starMesh.userData.starData.defenseLevel}`);
+                //console.log("⚔️ [CLIENT] Combat situation detected at star", starId);
+                //console.log(`   - Ships: ${shipsAtStarSet.size}, Factions: ${Array.from(factions).map(f => f.slice(-4)).join(', ')}`);
+                //console.log(`   - Star owner: ${starOwnerId?.slice(-4) || 'neutral'}, Defense: ${starMesh.userData.starData.defenseLevel}`);
                 
                 // Rajoita aktiivisten efektien määrä
                 if (combatEffects.size >= MAX_ACTIVE_COMBAT_EFFECTS) {
@@ -2480,7 +2755,7 @@ function checkForCombatSituations(delta) {
             }
         } else {
             if (combatEffects.has(starId)) {
-                console.log("✅ [CLIENT] Combat ended at star", starId);
+                //console.log("✅ [CLIENT] Combat ended at star", starId);
                 const effect = combatEffects.get(starId);
                 effect.cleanup();
                 combatEffects.delete(starId);
@@ -2492,8 +2767,10 @@ function checkForCombatSituations(delta) {
     
     // Päivitä aktiiviset efektit - käytä suoraan Set-rakennetta
     combatEffects.forEach((effect, starId) => {
-        const ships = Array.from(shipsByStarClient.get(starId) || []);
-        effect.update(delta, ships);
+        if (frameSkipCounter % 2 === 0) { // Frame skip
+            const ships = Array.from(shipsByStarClient.get(starId) || []);
+            effect.update(delta, ships);
+        }
     });
 
     // --- LISÄÄ LOPPUUN MITTAUSRAPORTTI ---
@@ -2510,112 +2787,128 @@ function markStarForCombatCheck(starId) {
         starsToCheck.add(starId);
     }
 }
+
+function triggerCombatCheck() {
+    // pakota seuraava tarkistus heti seuraavassa framessa
+    lastCombatCheck = 0;
+}
+
 // Alusten orbitoinnin päivittäminen
 function updateOrbitingShips(delta) {
+    if (window.isPaused) return; // STOP everything if paused!
+    
     const SIM_DELTA = Math.min(delta, 0.12); // Max ~7 framea kerralla
-
     frameSkipCounter++;
 
+    // 1. AUTO-FIX TRACKING (säilytetty alkuperäisestä)
     if (frameSkipCounter % 60 === 0) {
         let fixed = 0;
-    
-    shipsById.forEach(shipMesh => {
-        const shipData = shipMesh.userData.shipData;
-        if (!shipData || !shipData.parentStarId) return;
         
-        const isOrbiting = shipData.state === 'orbiting' || shipData.predictedArrival;
-        const starId = shipData.predictedArrival ? shipData.targetStarId : shipData.parentStarId;
-        
-        if (isOrbiting && starId) {
-            // Varmista että alus on tracking rakenteessa
-            if (!shipsByStarClient.has(starId)) {
-                shipsByStarClient.set(starId, new Set());
-            }
+        shipsById.forEach(virtualShip => {
+            const shipData = virtualShip.userData.shipData;
+            if (!shipData || !shipData.parentStarId) return;
             
-            const starShips = shipsByStarClient.get(starId);
-            if (!starShips.has(shipMesh)) {
-                starShips.add(shipMesh);
-                fixed++;
+            const isOrbiting = shipData.state === 'orbiting' || shipData.predictedArrival;
+            const starId = shipData.predictedArrival ? shipData.targetStarId : shipData.parentStarId;
+            
+            if (isOrbiting && starId) {
+                // Varmista että alus on tracking rakenteessa
+                if (!shipsByStarClient.has(starId)) {
+                    shipsByStarClient.set(starId, new Set());
+                }
+                
+                const starShips = shipsByStarClient.get(starId);
+                if (!starShips.has(virtualShip)) {
+                    starShips.add(virtualShip);
+                    fixed++;
+                }
             }
+        });
+        
+        if (fixed > 0) {
+            // console.log(`[AUTO-FIX] Re-tracked ${fixed} ships`);
         }
-    });
-    
-    if (fixed > 0) {
-        console.log(`[AUTO-FIX] Re-tracked ${fixed} ships`);
     }
-}
-    checkForCombatSituations(delta); // Visuaalinen taisteluindikaattori siksi aikaa, kun serveri käy combatin
-    shipsById.forEach(shipMesh => {
-        // shipData on tallennettu userData:n sisään spawnShips funktiossa
-        const shipData = shipMesh.userData.shipData;
+    
+    // 2. COMBAT SITUATIONS CHECK (säilytetty alkuperäisestä)
+    checkForCombatSituations(delta);
+    
+    // 3. PREPARE BATCH UPDATES PER TYPE
+    const updatesByType = {
+        Fighter: [],
+        Destroyer: [],
+        Cruiser: [],
+        'Slipstream Frigate': []
+    };
+    
+    // 4. PROCESS ALL SHIPS
+    shipsById.forEach(virtualShip => {
+        const shipData = virtualShip.userData.shipData;
         
         // Tarkista että shipData on olemassa
         if (!shipData) {
-            console.warn("Ship mesh without shipData:", shipMesh);
+            console.warn("Virtual ship without shipData:", virtualShip);
             return;
         }
         
-        // Orbitointi vain jos alus on parentStarin ympärillä
-        const isOrbitVisually =
-            shipData.state === 'orbiting' || shipData.predictedArrival;
-
-        const centerStarId =
-            shipData.predictedArrival        // ← ennustevaihe
-                ? shipData.targetStarId      //    käytä määränpäätä
-                : shipData.parentStarId;     // ← normaali orbit
+        const type = virtualShip.userData.shipType || 'Fighter';
+        
+        // ORBITING SHIPS
+        const isOrbitVisually = shipData.state === 'orbiting' || shipData.predictedArrival;
+        const centerStarId = shipData.predictedArrival ? shipData.targetStarId : shipData.parentStarId;
 
         if (isOrbitVisually && centerStarId) {
             const centerStar = starsById.get(centerStarId);
             if (!centerStar) return;
             
             // Päivitä orbitointi
-            shipMesh.userData.orbitAngle += shipMesh.userData.orbitSpeed * SIM_DELTA;
+            virtualShip.userData.orbitAngle += virtualShip.userData.orbitSpeed * SIM_DELTA;
 
-            shipMesh.position.x = centerStar.position.x +
-                shipMesh.userData.orbitRadius * Math.cos(shipMesh.userData.orbitAngle);
-            shipMesh.position.z = centerStar.position.z +
-                shipMesh.userData.orbitRadius * Math.sin(shipMesh.userData.orbitAngle);
-            shipMesh.position.y = centerStar.position.y +
-                Math.sin(shipMesh.userData.orbitAngle * 0.5) * 2;
+            virtualShip.position.x = centerStar.position.x +
+                virtualShip.userData.orbitRadius * Math.cos(virtualShip.userData.orbitAngle);
+            virtualShip.position.z = centerStar.position.z +
+                virtualShip.userData.orbitRadius * Math.sin(virtualShip.userData.orbitAngle);
+            virtualShip.position.y = centerStar.position.y +
+                Math.sin(virtualShip.userData.orbitAngle * 0.5) * 2;
 
-            shipMesh.lookAt(centerStar.position);
+            // Tallenna päivitys batch-listaan
+            updatesByType[type].push({
+                index: virtualShip.userData.instanceIndex,
+                position: virtualShip.position.clone(),
+                lookAt: centerStar.position
+            });
         }
-        // LIIKKUVAT ALUKSET
+        // MOVING SHIPS (säilytetty kaikki alkuperäinen logiikka)
         else if (shipData.state === 'moving' && shipData.targetStarId) {
-            /* 0️⃣  Jos mesh on vielä (0,0,0) tai tähden keskipisteessä,
-           nosta se nopeasti lähtötähden kiertoradalle. Tällä korjataan teleportaatio, jossa 
-           alus vaikuttaa teleporttaavan syntyplaneetalta ensimmäiselle tähdelleen.            */
-            if (!shipMesh.userData.validDeparture) {
-                // Käytä departureStarId prioriteettina, koska parentStarId on null moving-tilassa
-                const depStarId = shipData.departureStarId; // KORJATTU RIVI
+            // Departure position fix
+            if (!virtualShip.userData.validDeparture) {
+                const depStarId = shipData.departureStarId;
                 const depStar = starsById.get(depStarId);
                 
                 if (depStar) {
                     const rad = 15 + Math.random() * 6;
                     const ang = Math.random() * Math.PI * 2;
 
-                    shipMesh.position.set(
+                    virtualShip.position.set(
                         depStar.position.x + rad * Math.cos(ang),
                         depStar.position.y + Math.sin(ang * 0.5) * 2,
                         depStar.position.z + rad * Math.sin(ang)
                     );
-                    shipMesh.lookAt(depStar.position);
-                    shipMesh.userData.clickTarget?.position.copy(shipMesh.position);
                     
-                    console.log(`[DEPARTURE-FIX] Set ship position at ${depStar.userData.starData.name}`);
+                    //console.log(`[DEPARTURE-FIX] Set ship position at ${depStar.userData.starData.name}`);
                 } else {
                     console.warn(`[DEPARTURE-FIX] Could not find departure star ${depStarId}`);
                 }
                 
-                shipMesh.userData.validDeparture = true;
+                virtualShip.userData.validDeparture = true;
             }
+            
             const targetStar = starsById.get(shipData.targetStarId);
             if (!targetStar) return;
             
             const targetPosition = targetStar.position;
-            const direction = targetPosition.clone().sub(shipMesh.position).normalize();
-            const distanceToTarget = shipMesh.position.distanceTo(targetPosition);
-            
+            const direction = targetPosition.clone().sub(virtualShip.position).normalize();
+            const distanceToTarget = virtualShip.position.distanceTo(targetPosition);
             
             // Tarkista onko starlane olemassa
             let speed = shipData.speed;
@@ -2634,22 +2927,23 @@ function updateOrbitingShips(delta) {
                     speed = FIGHTER_SPEED_SLOW;
                 }
             }
-            // UUSI LOGIIKKA: Rajoita step niin ettei ylitä orbit-vyöhykettä
+            
+            // Orbit zone logic
             const orbitR = shipData.plannedOrbitRadius ?? 18;
             const rawStep = speed * SIM_DELTA;
-            
-            // Varmista ettei yhdellä askeleella pääse orbit-vyöhykkeen sisään
-            const maxStep = Math.max(0, distanceToTarget - orbitR * 0.9); // 90% varmuusmarginaali
+            const maxStep = Math.max(0, distanceToTarget - orbitR * 0.9);
             const step = Math.min(rawStep, maxStep);
             
-            // MUUTETTU EHTO: Tarkista vain etäisyys, ei step-laskelmaa
             if (distanceToTarget > orbitR) {
                 // Normaali liike
-                shipMesh.position.add(direction.multiplyScalar(step));
-                shipMesh.lookAt(targetPosition);
-                if (shipMesh.userData.clickTarget) {
-                    shipMesh.userData.clickTarget.position.copy(shipMesh.position);
-                }
+                virtualShip.position.add(direction.multiplyScalar(step));
+                
+                // Tallenna päivitys
+                updatesByType[type].push({
+                    index: virtualShip.userData.instanceIndex,
+                    position: virtualShip.position.clone(),
+                    lookAt: targetPosition
+                });
             }
             else {
                 // Saavutaan orbit-vyöhykkeelle
@@ -2659,39 +2953,76 @@ function updateOrbitingShips(delta) {
                     const ang = shipData.plannedOrbitAngle ?? Math.random() * Math.PI * 2;
                     const rad = shipData.plannedOrbitRadius ?? orbitR;
 
-                    shipMesh.userData.orbitAngle = ang;
-                    shipMesh.userData.orbitRadius = rad;
+                    virtualShip.userData.orbitAngle = ang;
+                    virtualShip.userData.orbitRadius = rad;
 
-                    shipMesh.position.set(
+                    virtualShip.position.set(
                         targetPosition.x + rad * Math.cos(ang),
                         targetPosition.y + Math.sin(ang * 0.5) * 2,
                         targetPosition.z + rad * Math.sin(ang)
                     );
-                    shipMesh.lookAt(targetPosition);
-                    if (shipMesh.userData.clickTarget) {
-                        shipMesh.userData.clickTarget.position.copy(shipMesh.position);
-                    }
                     
-                    // --- UUSI: PÄIVITÄ HAKURAKENNE PREDICTED ARRIVAL -TILASSA ---
-                    // Lisää alus kohdetähden listalle jo nyt
+                    // Päivitä tracking
                     const targetStarId = shipData.targetStarId;
                     if (targetStarId) {
                         if (!shipsByStarClient.has(targetStarId)) {
                             shipsByStarClient.set(targetStarId, new Set());
                         }
-                        shipsByStarClient.get(targetStarId).add(shipMesh);
-                        console.log(`[PREDICTED-ARRIVAL] Added ship to star ${targetStarId} for combat check`);
+                        shipsByStarClient.get(targetStarId).add(virtualShip);
+                        //console.log(`[PREDICTED-ARRIVAL] Added ship to star ${targetStarId} for combat check`);
                     }
-                    // --- PÄIVITYS PÄÄTTYY ---
                     
-                    // LISÄÄ TÄMÄ: Pakota välitön taistelutarkistus
+                    // Pakota välitön taistelutarkistus
                     markStarForCombatCheck(shipData.targetStarId);
-                    combatCheckTimer = 0.1; // Nollaa ajastin jotta seuraava tarkistus tapahtuu heti
+                    triggerCombatCheck();
                     
-                    console.log(`[ORBIT-ARRIVAL] Ship arrived at star ${shipData.targetStarId}, marking for immediate combat check`);
+                    //console.log(`[ORBIT-ARRIVAL] Ship arrived at star ${shipData.targetStarId}, marking for immediate combat check`);
+                    
+                    // Tallenna päivitys
+                    updatesByType[type].push({
+                        index: virtualShip.userData.instanceIndex,
+                        position: virtualShip.position.clone(),
+                        lookAt: targetPosition
+                    });
                 }
             }
-
+        }
+    });
+    
+    Object.entries(updatesByType).forEach(([type, updates]) => {
+        if (updates.length === 0) return;
+        
+        const instancedMesh = SHIP_INSTANCED_MESHES[type];
+        if (!instancedMesh) {
+            console.warn(`No InstancedMesh found for type ${type}`);
+            return;
+        }
+        
+        const dummy = new THREE.Object3D();
+        
+        updates.forEach(update => {
+            if (update.index === undefined || update.index < 0) {
+                console.warn('Invalid instance index:', update);
+                return;
+            }
+            
+            dummy.position.copy(update.position);
+            dummy.lookAt(update.lookAt);
+            dummy.scale.set(1, 1, 1); // Varmista että scale on 1
+            dummy.updateMatrix();
+            
+            try {
+                instancedMesh.setMatrixAt(update.index, dummy.matrix);
+            } catch (e) {
+                console.error(`Failed to update instance ${update.index}:`, e);
+            }
+        });
+        
+        instancedMesh.instanceMatrix.needsUpdate = true;
+        
+        // Debug log
+        if (frameSkipCounter % 60 === 0) {
+            // console.log(`Updated ${updates.length} ${type} instances`);
         }
     });
 }
@@ -2822,49 +3153,61 @@ function createConquestRing(starMesh, color = 0xffa500) {
 
 
 export function cleanupScene() {
-    stopAnimateLoop(); // <<-- KUTSUTAAN UUTTA PYSÄYTYSFUNKTIOTA
-    console.log('[CLEANUP] Siivotaan vanhan pelin 3D-objektit...');
+    stopAnimateLoop();
+    // console.log('[CLEANUP] Siivotaan vanhan pelin 3D-objektit...');
     
-    // ... (animStarted ja clock nollaus pysyy ennallaan) ...
     animStarted = false;
     if (clock) clock.stop();
 
-    // Poista tähdet ja KAIKKI niihin liittyvät objektit
+    // Cleanup ship instances FIRST
+    Object.values(SHIP_INSTANCED_MESHES).forEach(mesh => {
+        scene.remove(mesh);
+        mesh.geometry.dispose();
+        mesh.material.dispose();
+        // Tyhjennä instance bufferit
+        if (mesh.instanceMatrix) mesh.instanceMatrix.array.fill(0);
+        if (mesh.instanceColor) mesh.instanceColor.array.fill(0);
+        mesh.count = 0;
+    });
+    
+    // Reset instance data
+    Object.keys(shipInstanceData).forEach(type => {
+        shipInstanceData[type] = { 
+            count: 0, 
+            matrices: [], 
+            colors: [], 
+            ids: new Map() 
+        };
+    });
+    
+    // Clear ship tracking
+    shipsById.clear();
+    shipsByStarClient.clear();
+    
+    // Poista tähdet ja niiden objektit (alkuperäinen koodi)
     starsById.forEach((starMesh) => {
-        // Poista itse tähti
         scene.remove(starMesh);
         
-        // -----------------------------------------------------------------------------
-        //  Poista tähteen liitetyt apu­objektit (glow, renkaat, indikaattorit …)
-        // -----------------------------------------------------------------------------
         if (starMesh.userData.glowSprite) {
             scene.remove(starMesh.userData.glowSprite);
             starMesh.userData.glowSprite.material.dispose();
         }
 
-        /* Käytetään samaa apufunktiota renkaiden & spritejen listojen siivoamiseen */
         const disposeList = list => {
             list.forEach(obj => {
                 scene.remove(obj);
-                if (obj.geometry)  obj.geometry.dispose();
-                if (obj.material)  obj.material.dispose();
+                if (obj.geometry) obj.geometry.dispose();
+                if (obj.material) obj.material.dispose();
             });
         };
 
-        /* Tähden data löytyy kahdesta paikasta:  userData  JA  userData.starData  */
-        const sd  = starMesh.userData;
+        const sd = starMesh.userData;
         const sds = sd.starData ?? {};
 
-        /* --------------------  Planetary Defense rings  -------------------- */
-        disposeList(sds.defenseRings  ?? sd.defenseRings  ?? []);
-
-        /* --------------------  Mine-indikaattorit  ------------------------- */
-        disposeList(sds.mineIndicatorMeshes        ?? sd.mineIndicatorMeshes        ?? []);
-
-        /* --------------------  Population-indikaattorit  ------------------- */
-        disposeList(sds.populationIndicatorMeshes  ?? sd.populationIndicatorMeshes  ?? []);
-
-        /* --------------------  Shipyard sprite + renkaat  ------------------ */
+        disposeList(sds.defenseRings ?? sd.defenseRings ?? []);
+        disposeList(sds.mineIndicatorMeshes ?? sd.mineIndicatorMeshes ?? []);
+        disposeList(sds.populationIndicatorMeshes ?? sd.populationIndicatorMeshes ?? []);
+        
         if (sds.shipyardIndicatorSprite ?? sd.shipyardIndicatorSprite) {
             const spr = sds.shipyardIndicatorSprite ?? sd.shipyardIndicatorSprite;
             scene.remove(spr);
@@ -2872,17 +3215,13 @@ export function cleanupScene() {
         }
         disposeList(sds.shipyardRings ?? sd.shipyardRings ?? []);
 
-        /* --------------------  Conquest-rengas  ---------------------------- */
         if (sd.conquestRing || sds.conquestRing) {
             const ring = sd.conquestRing || sds.conquestRing;
-            
-            // LISÄÄ: Poista glow ring ensin
             if (ring.userData && ring.userData.glowRing) {
                 scene.remove(ring.userData.glowRing);
                 ring.userData.glowRing.geometry.dispose();
                 ring.userData.glowRing.material.dispose();
             }
-            
             scene.remove(ring);
             ring.geometry.dispose();
             ring.material.dispose();
@@ -2890,55 +3229,50 @@ export function cleanupScene() {
             sds.conquestRing = null;
         }
         
-        /* --------------------  Combat-effects  ---------------------------- */
-
-        // Siivotaan viihdykeräjähdykset 
-        if (window.explosionPool) {
-            window.explosionPool.cleanup();
-            window.explosionPool = null;
-        }
-
-        combatEffects.forEach(effect => effect.cleanup());
-        combatEffects.clear();
-        starsToCheck.clear();
-        combatCheckTimer = 0;
-        // Vapauta muisti
         starMesh.geometry.dispose();
         starMesh.material.dispose();
     });
     starsById.clear();
 
-    // ... (laivojen ja muiden objektien siivous pysyy ennallaan) ...
-    shipsById.forEach((shipMesh) => {
-        scene.remove(shipMesh);
-        if (shipMesh.userData.clickTarget) {
-            scene.remove(shipMesh.userData.clickTarget);
-        }
-        shipMesh.geometry.dispose();
-        shipMesh.material.dispose();
+
+
+    // Clear connections and effects
+    starConnections.forEach(line => {
+        scene.remove(line);
+        line.geometry.dispose();
+        line.material.dispose();
     });
-
-    shipsById.clear();
-
-    shipsByStarClient.clear();
-
-    starConnections.forEach(line => scene.remove(line));
     starConnections.length = 0;
+    
     starGlows.forEach(glow => {
         scene.remove(glow);
         if (glow.material) glow.material.dispose();
-        if (glow.geometry) glow.geometry.dispose();
-        });
+    });
     starGlows.length = 0;
 
-    explosions.forEach(ex => scene.remove(ex.points));
+    explosions.forEach(ex => {
+        scene.remove(ex.points);
+        ex.points.geometry.dispose();
+    });
     explosions.length = 0;
     
-    // Varmistetaan, että myös TWEEN-animaatiot poistetaan
+    // Cleanup explosion pool
+    if (window.explosionPool) {
+        window.explosionPool.cleanup();
+        window.explosionPool = null;
+    }
+
+    // Cleanup combat effects
+    combatEffects.forEach(effect => effect.cleanup());
+    combatEffects.clear();
+    starsToCheck.clear();
+    
+    // Clear tweens
     if (window.TWEEN) {
         window.TWEEN.removeAll();
     }
 
+    // Reset selection
     selectedStar = null;
     hoveredStar = null;
     selectedShips.length = 0;
@@ -2946,23 +3280,16 @@ export function cleanupScene() {
         selectionIndicatorMesh.visible = false;
     }
 
+    // Clean up any remaining objects
     const objectsToRemove = [];
     scene.traverse((child) => {
-        // Kerää kaikki spritet
-        if (child instanceof THREE.Sprite) {
-            objectsToRemove.push(child);
-        }
-        // Kerää kaikki ring geometriat
-        else if (child.geometry instanceof THREE.RingGeometry) {
-            objectsToRemove.push(child);
-        }
-        // Kerää kaikki viivat (starlanes)
-        else if (child instanceof THREE.Line) {
+        if (child instanceof THREE.Sprite || 
+            child.geometry instanceof THREE.RingGeometry || 
+            child instanceof THREE.Line) {
             objectsToRemove.push(child);
         }
     });
 
-    // Poista kerätyt objektit
     objectsToRemove.forEach(obj => {
         scene.remove(obj);
         if (obj.geometry) obj.geometry.dispose();
@@ -2972,19 +3299,44 @@ export function cleanupScene() {
         }
     });
 
-    // Siivoa myös nebulaSprites
+    // Cleanup shipyard ring instances
+    Object.values(SHIPYARD_RING_INSTANCES).forEach(mesh => {
+        if (mesh) {
+            scene.remove(mesh);
+            mesh.geometry.dispose();
+            mesh.material.dispose();
+            mesh.count = 0;
+        }
+    });
+
+    // Reset shipyard ring data
+    Object.keys(shipyardRingData).forEach(level => {
+        shipyardRingData[level] = { 
+            count: 0, 
+            rotations: [], 
+            speeds: [], 
+            starIds: [] 
+        };
+    });
+
+    // Clear nebula sprites
     nebulaSprites.forEach(sprite => {
         scene.remove(sprite);
         if (sprite.material) sprite.material.dispose();
     });
     nebulaSprites.length = 0;
 
-    console.log('[CLEANUP] 3D-maailma siivottu perusteellisesti.');
+    // Force garbage collection hint
+    if (window.gc) {
+        window.gc();
+    }
+
+    // console.log('[CLEANUP] 3D-maailma siivottu perusteellisesti.');
 }
 
 // Manuaalinen siivous
 function performMemoryCleanup() {
-    console.log('🧹 [MEMORY-CLEANUP] Starting manual memory cleanup...');
+    // console.log('🧹 [MEMORY-CLEANUP] Starting manual memory cleanup...');
     
     let cleaned = 0;
     
@@ -3029,11 +3381,11 @@ function performMemoryCleanup() {
     starsToCheck.clear();
     validStarsToCheck.forEach(id => starsToCheck.add(id));
     
-    console.log(`✅ [MEMORY-CLEANUP] Cleaned ${cleaned} obsolete references`);
+    // console.log(`✅ [MEMORY-CLEANUP] Cleaned ${cleaned} obsolete references`);
 }
 
 function cleanupCombatChecks() {
-    console.log('🔧 [COMBAT-CLEANUP] Fixing ship tracking...');
+    // console.log('🔧 [COMBAT-CLEANUP] Fixing ship tracking...');
     
     let fixed = 0;
     let removed = 0;
@@ -3085,29 +3437,188 @@ function cleanupCombatChecks() {
     });
     
     // 3. Nollaa combat tarkistukset
-    combatCheckTimer = 0;
+    triggerCombatCheck();
     
-    console.log(`✅ [COMBAT-CLEANUP] Fixed ${fixed} ships, removed ${removed} invalid entries`);
+    // console.log(`✅ [COMBAT-CLEANUP] Fixed ${fixed} ships, removed ${removed} invalid entries`);
 }
+
+// Debug funktio alusten tarkistamiseen
+window.debugShips = function() {
+    console.group('🚢 Ship Debug Info');
+    
+    // 1. Tarkista InstancedMeshit
+    Object.entries(SHIP_INSTANCED_MESHES).forEach(([type, mesh]) => {
+        console.group(`${type} InstancedMesh:`);
+         console.log('Count:', mesh.count);
+         console.log('Visible:', mesh.visible);
+         console.log('In scene:', scene.children.includes(mesh));
+         console.log('Position:', mesh.position);
+         console.log('Material visible:', mesh.material.visible);
+         console.log('Material opacity:', mesh.material.opacity);
+        
+        // Tarkista ensimmäinen matriisi
+        if (mesh.instanceMatrix && mesh.count > 0) {
+            const mat = new THREE.Matrix4();
+            mesh.getMatrixAt(0, mat);
+            const pos = new THREE.Vector3();
+            const quat = new THREE.Quaternion();
+            const scale = new THREE.Vector3();
+            mat.decompose(pos, quat, scale);
+             console.log('First instance position:', pos);
+             console.log('First instance scale:', scale);
+        }
+        
+        // Tarkista ensimmäinen väri
+        if (mesh.instanceColor && mesh.count > 0) {
+            const color = new THREE.Color();
+            mesh.getColorAt(0, color);
+            // console.log('First instance color:', color);
+        }
+        
+        console.groupEnd();
+    });
+    
+     //2. Tarkista virtuaaliset alukset
+     console.log('Virtual ships total:', shipsById.size);
+    
+    // 3. Tarkista instanceData
+    Object.entries(shipInstanceData).forEach(([type, data]) => {
+         console.log(`${type} instance data:`, {
+            count: data.count,
+            matrices: data.matrices.length,
+            colors: data.colors.length,
+            ids: data.ids.size
+        });
+    });
+
+    // 4. Testaa luomalla yksi alus manuaalisesti
+    console.group('Manual ship test:');
+    const testMesh = SHIP_INSTANCED_MESHES['Fighter'];
+    if (testMesh) {
+        const dummy = new THREE.Object3D();
+        dummy.position.set(0, 20, 0); // Kameran edessä
+        dummy.scale.set(5, 5, 5); // Iso että näkyy varmasti
+        dummy.updateMatrix();
+        
+        const testIndex = testMesh.count;
+        testMesh.setMatrixAt(testIndex, dummy.matrix);
+        testMesh.setColorAt(testIndex, new THREE.Color(0xff0000)); // Punainen
+        testMesh.count = testIndex + 1;
+        testMesh.instanceMatrix.needsUpdate = true;
+        testMesh.instanceColor.needsUpdate = true;
+        
+         console.log('Created test ship at index:', testIndex);
+         console.log('New count:', testMesh.count);
+    }
+    console.groupEnd();
+    
+    console.groupEnd();
+};
+
+
+// Debug shipyard rings
+window.debugShipyardRings = function() {
+    console.group('💍 Shipyard Rings Debug');
+    
+    Object.entries(SHIPYARD_RING_INSTANCES).forEach(([level, mesh]) => {
+        console.group(`${level}:`);
+        console.log('Count:', mesh.count);
+        console.log('Visible:', mesh.visible);
+        console.log('In scene:', scene.children.includes(mesh));
+        console.log('Material:', mesh.material);
+        console.log('Material visible:', mesh.material.visible);
+        console.log('Material opacity:', mesh.material.opacity);
+        console.log('Render order:', mesh.renderOrder);
+        
+        if (mesh.count > 0) {
+            // Tarkista ensimmäinen instanssi
+            const mat = new THREE.Matrix4();
+            mesh.getMatrixAt(0, mat);
+            const pos = new THREE.Vector3();
+            const quat = new THREE.Quaternion();
+            const scale = new THREE.Vector3();
+            mat.decompose(pos, quat, scale);
+            console.log('First instance position:', pos);
+            console.log('First instance scale:', scale);
+        }
+        console.groupEnd();
+    });
+    
+    console.log('\nShipyard ring data:');
+    Object.entries(shipyardRingData).forEach(([level, data]) => {
+        console.log(`${level}: count=${data.count}`);
+    });
+    
+    console.groupEnd();
+};
+
+// Test function to manually create a ring
+window.testShipyardRing = function() {
+    console.log('🧪 Creating test ring...');
+    
+    const mesh = SHIPYARD_RING_INSTANCES.level1;
+    if (!mesh) {
+        console.error('No level1 mesh found!');
+        return;
+    }
+    
+    const dummy = new THREE.Object3D();
+    dummy.position.set(0, 20, 0); // Kameran edessä
+    dummy.scale.set(5, 5, 5); // Iso
+    dummy.updateMatrix();
+    
+    const testIndex = mesh.count;
+    mesh.setMatrixAt(testIndex, dummy.matrix);
+    mesh.setColorAt(testIndex, new THREE.Color(0xff0000)); // Punainen
+    mesh.count = testIndex + 1;
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    
+    console.log('✅ Created test ring at index:', testIndex);
+    console.log('New count:', mesh.count);
+    console.log('Mesh visible:', mesh.visible);
+    
+    // Force render
+    if (renderer) renderer.render(scene, camera);
+};
+
 
 // Debug-funktio joka on käytettävissä globaalisti
 export function getSceneDebugInfo() {
-    // Laske tracking accuracy
     let totalTracked = 0;
     shipsByStarClient.forEach(ships => {
         totalTracked += ships.size;
     });
     
-    // Laske untracked ships
     let untrackedShips = 0;
-    shipsById.forEach(shipMesh => {
-        const shipData = shipMesh.userData.shipData;
+    shipsById.forEach(virtualShip => {
+        const shipData = virtualShip.userData.shipData;
         if (shipData && shipData.state === 'orbiting' && shipData.parentStarId) {
             let found = false;
             shipsByStarClient.forEach(ships => {
-                if (ships.has(shipMesh)) found = true;
+                if (ships.has(virtualShip)) found = true;
             });
             if (!found) untrackedShips++;
+        }
+    });
+    
+    // Instance info
+    const instancingInfo = {};
+    Object.entries(SHIP_INSTANCED_MESHES).forEach(([type, mesh]) => {
+        instancingInfo[type] = {
+            activeInstances: shipInstanceData[type].count,
+            maxInstances: MAX_SHIPS_PER_TYPE,
+            meshCount: mesh.count,
+            visible: mesh.visible
+        };
+    });
+    
+    // Count real meshes
+    let actualMeshCount = 0;
+    scene.traverse((child) => {
+        if (child.type === 'Mesh' && !child.isInstancedMesh && 
+            child.userData.type === 'ship') {
+            actualMeshCount++;
         }
     });
     
@@ -3115,41 +3626,25 @@ export function getSceneDebugInfo() {
         fps: fpsStats.fps,
         frameTime: fpsStats.frameTime ? fpsStats.frameTime.toFixed(1) : '0',
         totalShips: shipsById.size,
+        actualMeshes: actualMeshCount,
+        instancing: instancingInfo,
+        renderer: {
+            drawCalls: renderer.info.render.calls,
+            triangles: renderer.info.render.triangles,
+            geometries: renderer.info.memory.geometries
+        },
         starsWithShips: shipsByStarClient.size,
         trackedShips: totalTracked,
         untrackedShips: untrackedShips,
         trackingAccuracy: shipsById.size > 0 ? ((totalTracked / shipsById.size) * 100).toFixed(1) : '100',
-        shipsByStarDetails: () => {
-            const details = [];
-            let totalTracked = 0;
-            
-            shipsByStarClient.forEach((ships, starId) => {
-                totalTracked += ships.size;
-                const star = starsById.get(starId);
-                const starName = star?.userData?.starData?.name || 'Unknown';
-                if (ships.size > 0) {
-                    details.push({
-                        starName,
-                        starId,
-                        shipCount: ships.size
-                    });
-                }
-            });
-            
-            return {
-                details,
-                totalTracked,
-                trackingAccuracy: shipsById.size > 0 ? (totalTracked / shipsById.size * 100).toFixed(1) : '0',
-                untrackedShips: untrackedShips
-            };
-        },
         combatEffects: combatEffects.size,
-        explosions: explosions.length,
+        explosions: explosions.length + (window.explosionPool?.active?.length || 0),
         starsToCheck: starsToCheck.size,
         performanceIssues: {
             tooManyCombatEffects: combatEffects.size > 10,
             tooManyStarsToCheck: starsToCheck.size > 30,
-            poorTrackingAccuracy: totalTracked < shipsById.size * 0.95
+            poorTrackingAccuracy: totalTracked < shipsById.size * 0.95,
+            nonInstancedShips: actualMeshCount > 0
         }
     };
 }
@@ -3171,13 +3666,13 @@ setInterval(() => {
     
     // Jos accuracy alle 90%, korjaa automaattisesti
     if (accuracy < 0.9) {
-        console.log(`[AUTO-CLEANUP] Tracking accuracy low (${(accuracy * 100).toFixed(1)}%), running cleanup...`);
+        //console.log(`[AUTO-CLEANUP] Tracking accuracy low (${(accuracy * 100).toFixed(1)}%), running cleanup...`);
         cleanupCombatChecks();
     }
     
     // Jos liian monta efektiä, siivoa
     if (combatEffects.size > 10 || starsToCheck.size > 50) {
-        console.log(`[AUTO-CLEANUP] Too many effects/checks, running cleanup...`);
+        //console.log(`[AUTO-CLEANUP] Too many effects/checks, running cleanup...`);
         cleanupCombatChecks();
     }
 }, 10000); // 10 sekuntia

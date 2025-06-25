@@ -539,14 +539,14 @@ class AIController {
           });
           
         if(!target) {
-          console.log(`[AI] No target found from ${star.name}`);
+          //console.log(`[AI] No target found from ${star.name}`);
           return;
         }
 
         const firstStrike = target.defenseLevel * 3;
         const fighters = readyShips.filter(s => s.type === 'Fighter').length;
         if(fighters && firstStrike >= readyShips.length) {
-          console.log(`[AI] Skipping attack - PD would destroy all ships`);
+          //console.log(`[AI] Skipping attack - PD would destroy all ships`);
           return;
         }
 

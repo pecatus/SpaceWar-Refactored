@@ -620,7 +620,7 @@ async _checkConquestStart(star, ships, diff) {
     const starOwnerId = star.ownerId?.toString();
     
     if (attackerId !== starOwnerId) {
-        console.log(`[CONQUEST-START] Starting conquest of ${star.name}`);
+        //console.log(`[CONQUEST-START] Starting conquest of ${star.name}`);
         
         star.isBeingConqueredBy = attackerId;
         star.conquestProgress = 0;
@@ -654,8 +654,8 @@ async _checkConquestStart(star, ships, diff) {
     job.timeLeft -= 1;
 
     // Debug – näet tikit terminaalissa
-    console.log(`[TICK ${this._turn}] ${star.name.padEnd(10)} | `
-      + `build=${job.type} | left=${job.timeLeft}`);
+    //console.log(`[TICK ${this._turn}] ${star.name.padEnd(10)} | `
+    //  + `build=${job.type} | left=${job.timeLeft}`);
 
     // Valmis?
     if (job.timeLeft <= 0) {
@@ -733,7 +733,7 @@ async _checkConquestStart(star, ships, diff) {
             maxHp       : stats.maxHp
         });
 
-        console.log(`Created new ship: ID=${newShip._id}, type=${job.type}, owner=${star.ownerId}, hp=${stats.hp}/${stats.maxHp}`);
+        //console.log(`Created new ship: ID=${newShip._id}, type=${job.type}, owner=${star.ownerId}, hp=${stats.hp}/${stats.maxHp}`);
 
         this.state.ships.push(newShip);
 
@@ -863,20 +863,20 @@ async _applyActions(actions) {
     if (act.action === "QUEUE_PLANETARY") {
       // Tarkistetaan, onko komennolla hintaa ja lähettäjää (eli onko se ihmispelaajan komento)
       if (act.cost && act.playerId) {
-        console.log('--- DEBUG: Checking wallet state before payment ---');
-        console.log('Entire resource state:', JSON.stringify(this.state.resources, null, 2));
-        console.log('Checking for player ID:', act.playerId);
-        console.log('Wallet found:', this.state.resources[act.playerId]);
-        console.log('----------------------------------------------------');
+        //console.log('--- DEBUG: Checking wallet state before payment ---');
+        //console.log('Entire resource state:', JSON.stringify(this.state.resources, null, 2));
+        //console.log('Checking for player ID:', act.playerId);
+        //console.log('Wallet found:', this.state.resources[act.playerId]);
+        //console.log('----------------------------------------------------');
         const playerWallet = this.state.resources[act.playerId];
         // Varmistetaan serverillä, että pelaajalla on varmasti varaa
         if (playerWallet && playerWallet.credits >= act.cost.credits && playerWallet.minerals >= act.cost.minerals) {
           playerWallet.credits -= act.cost.credits;
           playerWallet.minerals -= act.cost.minerals;
-          console.log(`[SERVER-PAYMENT] Player ${act.playerId.slice(-4)} paid ${act.cost.credits}C for ${act.build.type}`);
+          //console.log(`[SERVER-PAYMENT] Player ${act.playerId.slice(-4)} paid ${act.cost.credits}C for ${act.build.type}`);
         } else {
           // Jos ei ollutkaan varaa, perutaan toimenpide
-          console.warn(`[SERVER-PAYMENT-CANCEL] Player ${act.playerId.slice(-4)} could not afford ${act.build.type}.`);
+          //console.warn(`[SERVER-PAYMENT-CANCEL] Player ${act.playerId.slice(-4)} could not afford ${act.build.type}.`);
           continue; // Hypätään tämän actionin yli
         }
       }
@@ -901,19 +901,19 @@ async _applyActions(actions) {
     if (act.action === "QUEUE_SHIP") {
       // Käytetään TÄSMÄLLEEN SAMAA LOGIIKKAA kuin planeetoille
       if (act.cost && act.playerId) {
-        console.log('--- DEBUG: Checking wallet state before payment ---');
-        console.log('Entire resource state:', JSON.stringify(this.state.resources, null, 2));
-        console.log('Checking for player ID:', act.playerId);
-        console.log('Wallet found:', this.state.resources[act.playerId]);
-        console.log('----------------------------------------------------');
+        //console.log('--- DEBUG: Checking wallet state before payment ---');
+        //console.log('Entire resource state:', JSON.stringify(this.state.resources, null, 2));
+        //console.log('Checking for player ID:', act.playerId);
+        //console.log('Wallet found:', this.state.resources[act.playerId]);
+        //console.log('----------------------------------------------------');
         const playerWallet = this.state.resources[act.playerId];
         if (playerWallet && playerWallet.credits >= act.cost.credits && playerWallet.minerals >= act.cost.minerals) {
           playerWallet.credits -= act.cost.credits;
           playerWallet.minerals -= act.cost.minerals;
-          console.log(`[SERVER-PAYMENT] Player ${act.playerId.slice(-4)} paid ${act.cost.credits}C for ${act.build.type}`);
-        } else {
-          console.warn(`[SERVER-PAYMENT-CANCEL] Player ${act.playerId.slice(-4)} could not afford ${act.build.type}.`);
-          continue; // Hypätään yli, jos ei varaa
+          //console.log(`[SERVER-PAYMENT] Player ${act.playerId.slice(-4)} paid ${act.cost.credits}C for ${act.build.type}`);
+        //} else {
+          //console.warn(`[SERVER-PAYMENT-CANCEL] Player ${act.playerId.slice(-4)} could not afford ${act.build.type}.`);
+          //continue; // Hypätään yli, jos ei varaa
         }
       }
 
@@ -935,7 +935,7 @@ async _applyActions(actions) {
 
     /* --------- MOVEMENT ---------- */
     if (act.action === "MOVE_SHIP") {
-        console.log(`Processing MOVE_SHIP: ${act.shipId} -> ${act.toStarId}`);
+        //console.log(`Processing MOVE_SHIP: ${act.shipId} -> ${act.toStarId}`);
         
         const sh = this._ship(act.shipId);
         if (!sh) {
@@ -1028,7 +1028,7 @@ async _applyActions(actions) {
             console.warn(`[SYNC-ERROR] Ship ${act.shipId} not in orbiting state after arrival!`);
         }
         
-        console.log(`[VISUAL-ONLY] SHIP_ARRIVED notification for ship ${act.shipId}`);
+        //console.log(`[VISUAL-ONLY] SHIP_ARRIVED notification for ship ${act.shipId}`);
         continue;
     }
   }
@@ -1079,7 +1079,7 @@ async _advanceMovement(diff) {
         // Päivitä kaikkien TÄLLÄ tickillä saapuvien alusten tila
         for (const arrival of arrivals) {
             const ship = arrival.ship;
-            console.log(`Ship ${ship._id} arrived at ${targetStar.name}`);
+            //console.log(`Ship ${ship._id} arrived at ${targetStar.name}`);
             
             ship.state = 'orbiting';
             ship.parentStarId = ship.targetStarId;
@@ -1155,7 +1155,7 @@ async _advanceConquest(diff) {
         
         // Jos puolustajia, keskeytä valloitus
         if (defendingShips.length > 0 && conquerorId !== defenderId) {
-            console.log(`Conquest of ${star.name} halted - defenders present`);
+            //console.log(`Conquest of ${star.name} halted - defenders present`);
             star.isBeingConqueredBy = null;
             star.conquestProgress = 0;
             star.markModified('isBeingConqueredBy');
@@ -1206,7 +1206,7 @@ async _advanceConquest(diff) {
                     const destroyed = oldMines === 1 ? 1 : 
                         Math.max(1, Math.floor(Math.random() * maxDestroy) + 1);
                     star.mines = Math.max(0, oldMines - destroyed);
-                    console.log(`${destroyed} mines destroyed during conquest`);
+                    //console.log(`${destroyed} mines destroyed during conquest`);
                 }
                 
                 // Nollaa jonotkin
@@ -1247,7 +1247,7 @@ async _advanceConquest(diff) {
                     }
                 });
                 
-                console.log(`Star ${star.name} conquered by ${conquerorId}`);
+                //console.log(`Star ${star.name} conquered by ${conquerorId}`);
             } else {
                 // Valloitus jatkuu
                 diff.push({
@@ -1328,7 +1328,7 @@ async _resolveCombatAtStar(star, diff, shipsAtStar = null) {
             const owner = s.ownerId?.toString()?.slice(-4) || 'unknown';
             shipsByFaction[owner] = (shipsByFaction[owner] || 0) + 1;
         });
-        console.log(`[${Date.now()}] COMBAT-CHECK ${shipsAtStar.length} ships at ${star.name}:`, shipsByFaction);
+        //console.log(`[${Date.now()}] COMBAT-CHECK ${shipsAtStar.length} ships at ${star.name}:`, shipsByFaction);
     }
 
     // ============== LISÄÄ TÄMÄ OSIO TÄHÄN ==============
@@ -1350,7 +1350,7 @@ async _resolveCombatAtStar(star, diff, shipsAtStar = null) {
         
         // Jos on muita faktioita TAI valloittajan aluksia ei ole enää, keskeytä
         if (otherFactions.length > 0 || !shipsByOwner[conquerorId]) {
-            console.log(`[CONQUEST-HALT] Halting conquest of ${star.name} - ${otherFactions.length > 0 ? 'enemies present' : 'no conquerors left'}`);
+            //console.log(`[CONQUEST-HALT] Halting conquest of ${star.name} - ${otherFactions.length > 0 ? 'enemies present' : 'no conquerors left'}`);
             
             star.isBeingConqueredBy = null;
             star.conquestProgress = 0;
@@ -1405,7 +1405,7 @@ async _resolveCombatAtStar(star, diff, shipsAtStar = null) {
             const starOwnerId = star.ownerId?.toString();
             
             if (attackerId !== starOwnerId) {
-                console.log(`[CONQUEST-START] No combat needed - starting conquest of ${star.name}`);
+                //console.log(`[CONQUEST-START] No combat needed - starting conquest of ${star.name}`);
                 
                 star.isBeingConqueredBy = attackerId;
                 star.conquestProgress = 0;
@@ -1500,11 +1500,11 @@ async _resolveCombatAtStar(star, diff, shipsAtStar = null) {
         const conquerorId = Object.keys(remainingFactions)[0];
         const starOwnerId = star.ownerId?.toString();
         
-        console.log(`[COMBAT-END] One faction remains. Conqueror: ${conquerorId?.slice(-4)}, Star owner: ${starOwnerId?.slice(-4) || 'neutral'}`);
+        //console.log(`[COMBAT-END] One faction remains. Conqueror: ${conquerorId?.slice(-4)}, Star owner: ${starOwnerId?.slice(-4) || 'neutral'}`);
 
 
         if (conquerorId !== starOwnerId) {
-            console.log(`[CONQUEST-START] Starting conquest of ${star.name} after combat`);
+            //console.log(`[CONQUEST-START] Starting conquest of ${star.name} after combat`);
             
             star.isBeingConqueredBy = conquerorId;
             star.conquestProgress = 0;
@@ -1531,7 +1531,7 @@ async _resolveCombatAtStar(star, diff, shipsAtStar = null) {
             
             diff.push(...conquestStartDiff);
         } else {
-            console.log(`[CONQUEST-SKIP] Faction already owns the star`);
+            //console.log(`[CONQUEST-SKIP] Faction already owns the star`);
         }
     }
 }
@@ -1696,7 +1696,7 @@ async _destroyShip(shipId, diff) {
         const now = Date.now();
         if (now - this._lastDiffSent >= this.DIFF_SEND_INTERVAL) {
             if (this._diffBuffer.length > 0) {
-                console.log(`[SEND-BATCH] ${this._diffBuffer.length} diffs`);
+                //console.log(`[SEND-BATCH] ${this._diffBuffer.length} diffs`);
                 this.io.to(this.gameId.toString()).emit("game_diff", this._diffBuffer);
                 this._diffBuffer = [];
                 this._lastDiffSent = now;
