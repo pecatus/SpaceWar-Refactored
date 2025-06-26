@@ -90,6 +90,24 @@ const shipyardRingData = {
     level4: { count: 0, rotations: [], speeds: [], starIds: [] }
 };
 
+// Defense ring instances
+const DEFENSE_RING_INSTANCES = {
+    level1: null,
+    level2: null,
+    level3: null,
+    level4: null
+};
+
+const MAX_DEFENSE_RINGS = 200; // Max per level
+
+// Defense ring instance tracking
+const defenseRingData = {
+    level1: { count: 0, starIds: [] },
+    level2: { count: 0, starIds: [] },
+    level3: { count: 0, starIds: [] },
+    level4: { count: 0, starIds: [] }
+};
+
 // Raycasting ja mouse
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
@@ -635,6 +653,8 @@ export function initThreeIfNeeded(mountTo = document.body) {
 
     initShipyardRingInstances();
 
+    initDefenseRingInstances();
+
     // Indikaattori-materiaalit
     initIndicatorMaterials();
     
@@ -785,6 +805,34 @@ function initShipyardRingInstances() {
     });
 }
 
+function initDefenseRingInstances() {
+    ['level1', 'level2', 'level3', 'level4'].forEach((level, index) => {
+        const geometry = new THREE.RingGeometry(10 - 0.2, 10 + 0.2, 64);
+        
+        const material = new THREE.MeshBasicMaterial({
+            color: 0xffffff,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 0.85,
+            depthWrite: false
+        });
+        
+        const instancedMesh = new THREE.InstancedMesh(geometry, material, MAX_DEFENSE_RINGS);
+        instancedMesh.count = 0;
+        instancedMesh.frustumCulled = false;
+        // POISTA TÄMÄ RIVI:
+        // instancedMesh.rotation.x = Math.PI / 2;
+        
+        const colors = new Float32Array(MAX_DEFENSE_RINGS * 3);
+        for (let i = 0; i < colors.length; i++) {
+            colors[i] = 1.0;
+        }
+        instancedMesh.instanceColor = new THREE.InstancedBufferAttribute(colors, 3);
+        
+        scene.add(instancedMesh);
+        DEFENSE_RING_INSTANCES[level] = instancedMesh;
+    });
+}
 
 function initIndicatorMaterials() {
     mineIndicatorTexture = createSquareTexture(new THREE.Color(INDICATOR_BASE_COLOR));
@@ -1538,7 +1586,7 @@ export function buildFromSnapshot(snap) {
         console.warn("Scene not ready, initializing first");
         initThreeIfNeeded();
     }
-
+    // ALUKSET
     // 1. Varmista, että alusten instanced‐meshit ovat scenessä
     Object.entries(SHIP_INSTANCED_MESHES).forEach(([type, mesh]) => {
         if (!scene.children.includes(mesh)) {
@@ -1547,6 +1595,18 @@ export function buildFromSnapshot(snap) {
         }
     });
 
+    // PLANETARY DEFENSE RINGIT
+    // Jos cleanupScene on nollannut defense rinkit, luo ne takaisin
+    if (Object.values(DEFENSE_RING_INSTANCES).some(m => m === null)) {
+        initDefenseRingInstances();
+    }
+
+    // Lisää joka tason instanced-mesh takaisin sceneen tarvittaessa
+    Object.entries(DEFENSE_RING_INSTANCES).forEach(([level, mesh]) => {
+        if (mesh && !scene.children.includes(mesh)) scene.add(mesh);
+    });
+
+    // SHIPYARD
     // Jos cleanupScene on nollannut renkaiden meshet, luo ne takaisin
     if (Object.values(SHIPYARD_RING_INSTANCES).some(m => m === null)) {
         initShipyardRingInstances();               // :contentReference[oaicite:0]{index=0}
@@ -1557,6 +1617,7 @@ export function buildFromSnapshot(snap) {
         if (mesh && !scene.children.includes(mesh)) scene.add(mesh);
     });
 
+    // NEBULAT
     if (nebulaSprites.length === 0) {
         //console.log("Recreating nebula sprites...");
         createNebulaSprites();
@@ -1859,14 +1920,37 @@ function spawnShips(shipList) {
 
 
 function updateDefenseRings(starData, starMesh) {
-    // Poista vanhat renkaat
-    if (starData.defenseRings) {
-        starData.defenseRings.forEach(ring => scene.remove(ring));
+    // Poista vanhat instance-viittaukset
+    if (starData.defenseRingInstances) {
+        starData.defenseRingInstances.forEach(ringRef => {
+            const data = defenseRingData[ringRef.level];
+            const instancedMesh = DEFENSE_RING_INSTANCES[ringRef.level];
+            
+            // Poista/piilota instanssi
+            const dummy = new THREE.Object3D();
+            dummy.scale.set(0, 0, 0);
+            dummy.updateMatrix();
+            instancedMesh.setMatrixAt(ringRef.index, dummy.matrix);
+            
+            // Poista metadata
+            data.starIds[ringRef.index] = null;
+            
+            // Jos viimeinen, pudota count
+            if (ringRef.index === data.count - 1) {
+                data.count--;
+                instancedMesh.count = data.count;
+            }
+            
+            instancedMesh.instanceMatrix.needsUpdate = true;
+        });
+        starData.defenseRingInstances = [];
     }
-    starData.defenseRings = [];
 
+    // Lisää uudet instanssit jos on defense level
     if (starData.ownerId && starData.defenseLevel > 0) {
-        // Määritä väri omistajan mukaan
+        starData.defenseRingInstances = [];
+        
+        // Määritä väri
         let ownerColor;
         if (starData.ownerId === window.gameData?.humanPlayerId) {
             ownerColor = PLAYER_COLOR;
@@ -1874,35 +1958,47 @@ function updateDefenseRings(starData, starMesh) {
             const ownerPlayer = window.gameData.players.find(p => p._id === starData.ownerId);
             ownerColor = ownerPlayer ? parseInt(ownerPlayer.color.replace('#', ''), 16) : 0xdc3545;
         }
-
-        // Sekoita valkoista mukaan
+        
         const ringColor = new THREE.Color(ownerColor).lerp(new THREE.Color(0xffffff), 0.30);
-
-        const ringMaterial = new THREE.MeshBasicMaterial({
-            color: ringColor,
-            side: THREE.DoubleSide,
-            transparent: true,
-            opacity: 0.85,
-            depthWrite: false
-        });
-
         const starRadius = starMesh.geometry.parameters.radius * (starMesh.scale.x || 1);
-
-        for (let i = 0; i < starData.defenseLevel; i++) {
+        
+        const dummy = new THREE.Object3D();
+        
+        for (let i = 0; i < starData.defenseLevel && i < 4; i++) {
+            const levelKey = `level${i + 1}`;
+            const instancedMesh = DEFENSE_RING_INSTANCES[levelKey];
+            const data = defenseRingData[levelKey];
+            
+            const instanceIndex = data.count;
             const ringRadius = starRadius + 3 + i * 1.5;
-            const ringGeometry = new THREE.RingGeometry(ringRadius - 0.2, ringRadius + 0.2, 64);
-            const ring = new THREE.Mesh(ringGeometry, ringMaterial);
-            ring.position.copy(starMesh.position);
-            ring.rotation.x = Math.PI / 2;
-            scene.add(ring);
-            starData.defenseRings.push(ring);
+            const scaleRatio = ringRadius / 10; // 10 on base radius geometriassa
+            
+            // Aseta positio ja skaalaus
+            // Aseta positio, rotaatio ja skaalaus
+            dummy.position.copy(starMesh.position);
+            dummy.rotation.x = Math.PI / 2; // LISÄÄ TÄMÄ - käännä jokainen ringas erikseen
+            dummy.scale.set(scaleRatio, scaleRatio, scaleRatio);
+            dummy.updateMatrix();
+            
+            // Tallenna instanssiin
+            instancedMesh.setMatrixAt(instanceIndex, dummy.matrix);
+            instancedMesh.setColorAt(instanceIndex, ringColor);
+            
+            // Tallenna metadata
+            data.starIds[instanceIndex] = starData._id;
+            starData.defenseRingInstances.push({ level: levelKey, index: instanceIndex });
+            
+            data.count++;
+            instancedMesh.count = data.count;
+            instancedMesh.instanceMatrix.needsUpdate = true;
+            instancedMesh.instanceColor.needsUpdate = true;
         }
     }
 }
 
 function updateStarIndicators(starData, starMesh) {
-    // Poista vanhat indikaattorit
-    removeOldIndicators(starData);
+    // Poista vanhat indikaattorit PAITSI defense ringit
+    removeOldIndicators(starData, true)
     
     // Lisää uudet vain jos ei neutraali
     if (starData.ownerId) {
@@ -1912,7 +2008,7 @@ function updateStarIndicators(starData, starMesh) {
     }
 }
 
-function removeOldIndicators(starData) {
+function removeOldIndicators(starData, preserveDefenseRings = false) {
 
     // Mine indicators
     if (starData.mineIndicatorMeshes) {
@@ -1934,6 +2030,29 @@ function removeOldIndicators(starData) {
         starData.populationIndicatorMeshes = [];
     }
     
+    // Defense rings - poista vain jos EI säilytetä
+    if (!preserveDefenseRings && starData.defenseRingInstances) {
+        starData.defenseRingInstances.forEach(ringRef => {
+            const data = defenseRingData[ringRef.level];
+            const instancedMesh = DEFENSE_RING_INSTANCES[ringRef.level];
+            
+            const dummy = new THREE.Object3D();
+            dummy.scale.set(0, 0, 0);
+            dummy.updateMatrix();
+            instancedMesh.setMatrixAt(ringRef.index, dummy.matrix);
+            
+            data.starIds[ringRef.index] = null;
+            
+            if (ringRef.index === data.count - 1) {
+                data.count--;
+                instancedMesh.count = data.count;
+            }
+            
+            instancedMesh.instanceMatrix.needsUpdate = true;
+        });
+        starData.defenseRingInstances = [];
+    }
+
     // Shipyard indicator
     if (starData.shipyardIndicatorSprite) {
         scene.remove(starData.shipyardIndicatorSprite);
@@ -2003,11 +2122,12 @@ function updateMineIndicators(starData, starMesh) {
     const starRadiusScaled = starMesh.geometry.parameters.radius * (starMesh.scale.x || 1);
     const itemsPerRow = 4;
     const spacing = INDICATOR_SPRITE_SCALE * 0.9;
-    const yOffset = starRadiusScaled + INDICATOR_SPRITE_SCALE * 1.2 + 
-                   (starData.defenseLevel ? (starData.defenseLevel * 1.5 + 1.2) : 0);
+    
+    // KORJAUS: Poista defenseLevel vaikutus
+    const yOffset = starRadiusScaled + INDICATOR_SPRITE_SCALE * 1.2;
+    
     const xBaseOffset = starRadiusScaled * 0.6 + INDICATOR_SPRITE_SCALE * 0.4;
     
-    // Määritä väri omistajan mukaan
     let indicatorColor = getIndicatorColor(starData.ownerId);
     
     for (let i = 0; i < starData.mines; i++) {
@@ -2031,15 +2151,24 @@ function updateMineIndicators(starData, starMesh) {
 }
 
 function updatePopulationIndicators(starData, starMesh) {
-    if (!starData.population || starData.population === 0) return;
+    if (starData.populationIndicatorMeshes && starData.populationIndicatorMeshes.length > 0) {
+        starData.populationIndicatorMeshes.forEach(p => {
+            scene.remove(p);
+            if (p.material) p.material.dispose();
+        });
+    }
     
     starData.populationIndicatorMeshes = [];
+    
+    if (!starData.population || starData.population === 0) return;
     
     const starRadiusScaled = starMesh.geometry.parameters.radius * (starMesh.scale.x || 1);
     const itemsPerRow = 4;
     const spacing = INDICATOR_SPRITE_SCALE * 0.9;
-    const yOffset = starRadiusScaled + INDICATOR_SPRITE_SCALE * 1.2 + 
-                   (starData.defenseLevel ? (starData.defenseLevel * 1.5 + 1.2) : 0);
+    
+    // KORJAUS: Poista defenseLevel vaikutus
+    const yOffset = starRadiusScaled + INDICATOR_SPRITE_SCALE * 1.2;
+    
     const xBaseOffset = -(starRadiusScaled * 0.6 + INDICATOR_SPRITE_SCALE * 0.4);
     
     let indicatorColor = getIndicatorColor(starData.ownerId);
@@ -3184,6 +3313,24 @@ export function cleanupScene() {
     shipsById.clear();
     shipsByStarClient.clear();
     
+    // Cleanup defense ring instances
+    Object.values(DEFENSE_RING_INSTANCES).forEach(mesh => {
+        if (mesh) {
+            scene.remove(mesh);
+            mesh.geometry.dispose();
+            mesh.material.dispose();
+            mesh.count = 0;
+        }
+    });
+
+    // Reset defense ring data
+    Object.keys(defenseRingData).forEach(level => {
+        defenseRingData[level] = { 
+            count: 0, 
+            starIds: [] 
+        };
+    });
+
     // Poista tähdet ja niiden objektit (alkuperäinen koodi)
     starsById.forEach((starMesh) => {
         scene.remove(starMesh);
