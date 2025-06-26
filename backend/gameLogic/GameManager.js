@@ -1004,6 +1004,14 @@ async _applyActions(actions) {
             sh.ticksToArrive = 10; // Default jos ei lähtötähteä
         }
         
+        sh.markModified('state');
+        sh.markModified('targetStarId');
+        sh.markModified('parentStarId');
+        sh.markModified('speed');
+        sh.markModified('departureStarId');
+        sh.markModified('movementTicks');
+        sh.markModified('ticksToArrive');
+
         this._pendingSaves.ships.add(sh);
         
         // Lähetä diff
@@ -1149,12 +1157,12 @@ async _advanceConquest(diff) {
         // Tarkista onko puolustajia
         const defendingShips = this.state.ships.filter(s => 
             s.parentStarId?.toString() === star._id.toString() &&
-            s.ownerId?.toString() === defenderId &&
+            s.ownerId?.toString() !== conquerorId &&
             (s.state === 'orbiting' || s.state === 'conquering')
         );
         
         // Jos puolustajia, keskeytä valloitus
-        if (defendingShips.length > 0 && conquerorId !== defenderId) {
+        if (defendingShips.length > 0) {  
             //console.log(`Conquest of ${star.name} halted - defenders present`);
             star.isBeingConqueredBy = null;
             star.conquestProgress = 0;
@@ -1163,18 +1171,18 @@ async _advanceConquest(diff) {
             
             // Palauta alukset orbitoimaan
             for (const s of conqueringShips) {
-              s.state = 'orbiting';
-              s.markModified('state');
-              this._pendingSaves.ships.add(s); // Lisää tallennukset!
+            s.state = 'orbiting';
+            s.markModified('state');
+            this._pendingSaves.ships.add(s);
             }
             
             diff.push({
                 action: 'CONQUEST_HALTED',
                 starId: star._id,
-                reason: 'defenders_present'
+                reason: 'hostiles_present'
             });
-          continue;
-         }
+        continue;
+        }
         
         // Laske valloitusnopeus
         if (conqueringShips.length > 0) {
@@ -1642,11 +1650,33 @@ async _resolveCombatAtStar(star, diff, shipsAtStar = null) {
       }
   }
   
-  async _resolvePDOnlyBattle(star, attackers, diff) {
-    for (const ship of attackers) {
-      this._tryDamagePD(star, ship, diff);
+async _resolvePDOnlyBattle(star, attackers, diff) {
+    // LISÄÄ: PD ampuu ensin takaisin!
+    if (star.defenseHP > 0 && star.defenseLevel > 0) {
+        const shots = star.defenseLevel * 3;
+        const validTargets = [...attackers]; // Kopioi lista
+        
+        for (let i = 0; i < shots && validTargets.length > 0; i++) {
+            const target = this._pickTarget(validTargets);
+            if (target) {
+                const damage = target.type === 'Cruiser' ? 1 : 2;
+                if (await this._applyDamage(target, damage, diff)) {
+                    // Poista tuhottu alus listasta
+                    const idx = validTargets.findIndex(s => s._id.equals(target._id));
+                    if (idx > -1) validTargets.splice(idx, 1);
+                }
+            }
+        }
     }
-  }
+    
+    // Sen jälkeen hyökkääjät ampuvat PD:tä
+    for (const ship of attackers) {
+        // Tarkista että alus on vielä elossa
+        if (this.state.ships.some(s => s._id.equals(ship._id))) {
+            this._tryDamagePD(star, ship, diff);
+        }
+    }
+}
 
   // Jos laiva tuhoutuu, poistetaan
 async _destroyShip(shipId, diff) {

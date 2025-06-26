@@ -116,6 +116,41 @@ function earlyWeights(totalMines) {
   return null;
 }
 
+function simulatePDFirstStrike(ships, defenseLevel) {
+    if (defenseLevel === 0) return ships;
+    
+    const shots = defenseLevel * 3;
+    const survivors = [...ships];
+    let shotsLeft = shots;
+    
+    // PD ampuu Cruisereita ensin (koska ne ovat vaarallisimpia)
+    for (let i = survivors.length - 1; i >= 0 && shotsLeft > 0; i--) {
+        const ship = survivors[i];
+        if (ship.type === 'Cruiser') {
+            // Cruiser ottaa 1 dmg, hp on 3
+            if (shotsLeft >= 3) {
+                survivors.splice(i, 1);
+                shotsLeft -= 3;
+            }
+            // Ei tarpeeksi ammuksia tappamaan Cruiseria
+            else {
+                break;
+            }
+        }
+    }
+    
+    // Sitten muut alukset (2 dmg, Fighter hp=1, Destroyer hp=2)
+    for (let i = survivors.length - 1; i >= 0 && shotsLeft > 0; i--) {
+        const ship = survivors[i];
+        if (ship.type !== 'Cruiser') {
+            survivors.splice(i, 1);
+            shotsLeft--;
+        }
+    }
+    
+    return survivors;
+}
+
 /* ---------------------------------------------------------------------------
  *  4.  AIController class
  * ------------------------------------------------------------------------ */
@@ -155,6 +190,12 @@ class AIController {
 
     /* ---------- 4. bookkeeping ---------- */
     this.turn = 0;
+
+    /* ---------- 5. Strateginen tila ---------- */
+    this.gatheringTarget = null;     // Tähti johon kerätään joukkoja
+    this.gatheringFor = null;        // Kohdetähti hyökkäystä varten
+    this.gatheringStartTurn = null;  // Milloin aloitettiin kerääminen
+    this.GATHERING_TIMEOUT = 120;     // Max vuoroa keräämiseen
   }
 
   /* -------------------------------------------------------------------- */
@@ -180,6 +221,16 @@ class AIController {
 
       const acts = [];
 
+      // UUSI: Tarkista gathering timeout
+      if (this.gatheringTarget && this.gatheringStartTurn) {
+          if (turnNumber - this.gatheringStartTurn > this.GATHERING_TIMEOUT) {
+              console.log(`[AI] Gathering timeout - proceeding with available forces`);
+              this.gatheringTarget = null;
+              this.gatheringFor = null;
+              this.gatheringStartTurn = null;
+          }
+      }
+
       // EARLY GAME GUARDS
       if (totalMines < 5) {
           // Rakenna VAIN kaivoksia
@@ -187,7 +238,7 @@ class AIController {
           if (mineBuild) acts.push(mineBuild);
           
           // MUTTA anna laajentua silti!
-          acts.push(...this._expand(myStars));
+          acts.push(...this._expandWithGathering(myStars));
           
           // Lisätään playerId kaikkiin
           acts.forEach(act => { act.playerId = this.aiId; });
@@ -202,7 +253,7 @@ class AIController {
           const sBuild = this._buildOneStructure(myStars, totalMines, totalShips);
           if (sBuild) acts.push(sBuild);
           acts.push(...this._buildShips(myStars, totalMines, totalShips));
-          acts.push(...this._expand(myStars));  // Tärkeä!
+          acts.push(...this._expandWithGathering(myStars));  // Tärkeä!
           
           // Lisätään playerId kaikkiin
           acts.forEach(act => { act.playerId = this.aiId; });
@@ -216,9 +267,10 @@ class AIController {
       const sBuild = this._buildOneStructure(myStars, totalMines, totalShips);
       if (sBuild) acts.push(sBuild);
 
+      
       acts.push(...this._buildShips(myStars, totalMines, totalShips));
       acts.push(...this._defend(myStars));
-      acts.push(...this._expand(myStars));
+      acts.push(...this._expandWithGathering(myStars));
 
       // Päivitä prevRes vasta lopussa
       this.prevRes.credits = this.res.credits;
@@ -425,30 +477,126 @@ class AIController {
       };
   }
 
-  _shipPriorities(star, flt) {
-    const target = { Fighter:.3, Destroyer:.5, Cruiser:.2 };
-
-    const enemies=[...new Set(this.ships.map(s=>s.ownerId?.toString()))]
-        .filter(o=>o!==this.aiId);
-
-    let eD=0,eTot=0,anyPD=false;
-    enemies.forEach(eid=>{
-      const ss=this.ships.filter(s=>s.ownerId?.toString()===eid);
-      eD  +=ss.filter(s=>s.type==='Destroyer').length;
-      eTot+=ss.length;
-      if(!anyPD) anyPD=this.stars.some(st=>st.ownerId?.toString()===eid&&st.defenseLevel>0);
-    });
-    const manyD=eTot && eD/eTot>.10;
-
-    const p=[];
-    if(star.shipyardLevel>=3&&(manyD||anyPD)) p.push('Cruiser');
-    if(star.shipyardLevel>=3&&(flt.total===0||flt.cruisers/flt.total<target.Cruiser)&&!p.includes('Cruiser')) p.push('Cruiser');
-    if(star.shipyardLevel>=2&&(flt.total===0||flt.destroyers/flt.total<target.Destroyer)) p.push('Destroyer');
-    if(flt.total===0||flt.fighters/flt.total<target.Fighter) p.push('Fighter');
-    if(!p.includes('Destroyer')&&star.shipyardLevel>=2) p.push('Destroyer');
-    if(!p.includes('Fighter')) p.push('Fighter');
-    return p;
+  //apufunktio globaalien vihollisalusten analysointiin
+  _analyzeGlobalShipDistribution() {
+      const distribution = {
+          Fighter: 0,
+          Destroyer: 0,
+          Cruiser: 0,
+          total: 0
+      };
+      
+      // Laske KAIKKI viholliset (ei vain oman AI:n)
+      this.ships.forEach(ship => {
+          if (ship.ownerId?.toString() !== this.aiId) {
+              distribution[ship.type]++;
+              distribution.total++;
+          }
+      });
+      
+      // Palauta prosentteina
+      if (distribution.total > 0) {
+          return {
+              fighterRatio: distribution.Fighter / distribution.total,
+              destroyerRatio: distribution.Destroyer / distribution.total,
+              cruiserRatio: distribution.Cruiser / distribution.total,
+              total: distribution.total
+          };
+      }
+      
+      return { fighterRatio: 0.33, destroyerRatio: 0.33, cruiserRatio: 0.34, total: 0 };
   }
+  
+  _shipPriorities(star, flt) {
+      // Perustavoitteet omalle fleetille (tasapainoinen)
+      const baseTarget = { Fighter: 0.3, Destroyer: 0.4, Cruiser: 0.3 };
+      
+      // Analysoi vihollisten globaali jakauma
+      const enemyDist = this._analyzeGlobalShipDistribution();
+      
+      // Laske vasta-painotukset (rock-paper-scissors)
+      const counterWeights = {
+          Fighter: 1.0,
+          Destroyer: 1.0,
+          Cruiser: 1.0
+      };
+      
+      // Jos vihollisilla paljon Fightereita -> rakenna Destroyereita
+      if (enemyDist.fighterRatio > 0.4) {
+          counterWeights.Destroyer *= 1.5 + (enemyDist.fighterRatio - 0.4) * 2;
+          counterWeights.Fighter *= 0.7;
+      }
+      
+      // Jos vihollisilla paljon Destroyereita -> rakenna Cruisereita
+      if (enemyDist.destroyerRatio > 0.4) {
+          counterWeights.Cruiser *= 1.5 + (enemyDist.destroyerRatio - 0.4) * 2;
+          counterWeights.Destroyer *= 0.7;
+      }
+      
+      // Jos vihollisilla paljon Cruisereita -> rakenna Fightereita
+      if (enemyDist.cruiserRatio > 0.4) {
+          counterWeights.Fighter *= 1.5 + (enemyDist.cruiserRatio - 0.4) * 2;
+          counterWeights.Cruiser *= 0.7;
+      }
+      
+      // Erityistapaus: Jos PALJON PD:tä kentällä -> priorisoi Cruisereita
+      const enemiesWithPD = this.stars.filter(st => 
+          st.ownerId?.toString() !== this.aiId && 
+          st.defenseLevel > 0
+      ).length;
+      
+      if (enemiesWithPD > 3) {
+          counterWeights.Cruiser *= 1.3;
+      }
+      
+      // Laske lopulliset prioriteetit
+      const priorities = [];
+      const scores = {};
+      
+      // Pisteytä jokainen alustyyppi
+      if (star.shipyardLevel >= 1) {
+          const fighterDeficit = baseTarget.Fighter - (flt.fighters / Math.max(1, flt.total));
+          scores.Fighter = (0.5 + fighterDeficit) * counterWeights.Fighter;
+      }
+      
+      if (star.shipyardLevel >= 2) {
+          const destroyerDeficit = baseTarget.Destroyer - (flt.destroyers / Math.max(1, flt.total));
+          scores.Destroyer = (0.5 + destroyerDeficit) * counterWeights.Destroyer;
+      }
+      
+      if (star.shipyardLevel >= 3) {
+          const cruiserDeficit = baseTarget.Cruiser - (flt.cruisers / Math.max(1, flt.total));
+          scores.Cruiser = (0.5 + cruiserDeficit) * counterWeights.Cruiser;
+          
+          // Lisäbonus jos ei ole yhtään Cruisereita
+          if (flt.cruisers === 0 && flt.total > 5) {
+              scores.Cruiser *= 1.5;
+          }
+      }
+      
+      // Järjestä prioriteetin mukaan
+      const sortedTypes = Object.entries(scores)
+          .sort(([,a], [,b]) => b - a)
+          .map(([type]) => type);
+      
+      // Palauta lista prioriteettijärjestyksessä
+      priorities.push(...sortedTypes);
+      
+      // Jos lista on tyhjä, fallback
+      if (priorities.length === 0 && star.shipyardLevel >= 1) {
+          priorities.push('Fighter');
+      }
+      
+      // Debug loki (poista tuotannosta)
+      if (Math.random() < 0.05) { // 5% ajasta
+          console.log(`[AI-SHIPS] Enemy distribution: F:${(enemyDist.fighterRatio*100).toFixed(0)}% D:${(enemyDist.destroyerRatio*100).toFixed(0)}% C:${(enemyDist.cruiserRatio*100).toFixed(0)}%`);
+          console.log(`[AI-SHIPS] Counter weights: F:${counterWeights.Fighter.toFixed(2)} D:${counterWeights.Destroyer.toFixed(2)} C:${counterWeights.Cruiser.toFixed(2)}`);
+          console.log(`[AI-SHIPS] Building priority: ${priorities.join(' > ')}`);
+      }
+      
+      return priorities;
+  }
+
 
   /* ==================================================================== */
   /*  DEFENSIVE REDEPLOYMENT                                              */
@@ -507,60 +655,281 @@ class AIController {
   /* ==================================================================== */
   /*  EXPANSION                                                           */
   /* ==================================================================== */
-  _expand(myStars){
-      const acts=[];
-      const NONLANE_FACTOR=1.35, STARLANE_BONUS=8;
+  // Uusi funktio: Analysoi tarvitaanko joukkojen keräämistä
+  _needsFleetGathering(targetStar, availableShips) {
+      if (!targetStar.ownerId || targetStar.defenseLevel === 0) return false;
+      
+      // Simuloi hyökkäys
+      const survivors = simulatePDFirstStrike(availableShips, targetStar.defenseLevel);
+      const survivorPower = survivors.reduce((sum, s) => sum + shipPower(s), 0);
+      
+      // Tarvitaan gathering jos:
+      // 1. Kaikki kuolisivat TAI
+      // 2. Ei jää tarpeeksi voimaa valloittamaan TAI
+      // 3. Yli 60% kuolisi
+      const MIN_CONQUEST_POWER = 5; // Korotettu
+      const casualties = availableShips.length - survivors.length;
+      const casualtyRate = casualties / availableShips.length;
+      
+      return survivors.length === 0 || 
+            survivorPower < MIN_CONQUEST_POWER ||
+            casualtyRate > 0.6;
+  }
 
-      myStars.forEach(star=>{
-        // MUUTOS: Käytä suoraan ships-taulukkoa
-        const readyShips = this.ships.filter(s => 
-          s.parentStarId?.toString() === star._id.toString() &&
-          s.ownerId?.toString() === this.aiId && 
-          s.state === 'orbiting'
-        );
-        
-        // console.log(`[AI] ${readyShips.length} ships ready at ${star.name}`);
-        
-        if(readyShips.length < 1) return; // Debug: 1 alus riittää
-
-        let target=null,best=-Infinity;
-        this.stars.filter(s=>s.ownerId?.toString()!==this.aiId && !s.isBeingConqueredBy)
-          .forEach(tg=>{
-            // Korjaa myös connections-vertailu
-            const lane = (star.connections || []).some(c => c.toString() === tg._id.toString());
-            const dist = distance3D(star.position, tg.position);
-            let sc = 1000/(dist*(lane?1:NONLANE_FACTOR)+25);
-            if(lane) sc += STARLANE_BONUS;
-            sc += !tg.ownerId ? 10 : (tg.ownerId?.toString()===this.humanId ? 3 : 5);
-            
- 
-            
-            if(sc > best) { best=sc; target=tg; }
+  // Uusi funktio: Etsi paras kokoamispaikka
+  _findGatheringPoint(targetStar, myStars) {
+      let bestStar = null;
+      let bestScore = -Infinity;
+      
+      myStars.forEach(star => {
+          // Älä kerää suoraan kohteeseen
+          if (star._id.equals(targetStar._id)) return;
+          
+          const dist = distance3D(star.position, targetStar.position);
+          
+          // Pisteet perustuen:
+          // - Etäisyys kohteesta (lähemmät parempia)
+          // - Onko starlane kohteeseen
+          // - Onko telakka (voi rakentaa lisää samalla)
+          // - Turvallisuus (ei vihollisilta uhattuna)
+          
+          let score = 1000 / (dist + 100);
+          
+          // Bonus jos on starlane kohteeseen
+          if ((star.connections || []).some(c => c.toString() === targetStar._id.toString())) {
+              score *= 3;
+          }
+          
+          // Bonus jos on telakka
+          if (star.shipyardLevel > 0) {
+              score *= 1.5;
+          }
+          
+          // Vähennys jos lähellä vihollisia
+          const nearbyEnemies = this.stars.filter(s => 
+              s.ownerId?.toString() !== this.aiId &&
+              distance3D(s.position, star.position) < 150
+          ).length;
+          score /= (1 + nearbyEnemies * 0.5);
+          
+          if (score > bestScore) {
+              bestScore = score;
+              bestStar = star;
+          }
+      });
+      
+      return bestStar;
+  }
+    
+  _expandWithGathering(myStars) {
+      const acts = [];
+      const NONLANE_FACTOR = 1.35, STARLANE_BONUS = 8;
+      
+      // Jos gathering on käynnissä, jatka sitä
+      if (this.gatheringTarget && this.gatheringFor) {
+          return this._continueGathering();
+      }
+      
+      // Analysoi potentiaaliset kohteet
+      const potentialTargets = this.stars.filter(s => 
+          s.ownerId?.toString() !== this.aiId && 
+          !s.isBeingConqueredBy
+      );
+      
+      // Kerää kaikki käytettävissä olevat alukset
+      const allAvailableShips = [];
+      const shipsByLocation = new Map();
+      
+      myStars.forEach(star => {
+          const ships = this.ships.filter(s => 
+              s.parentStarId?.toString() === star._id.toString() &&
+              s.ownerId?.toString() === this.aiId && 
+              s.state === 'orbiting'
+          );
+          
+          if (ships.length > 0) {
+              shipsByLocation.set(star._id.toString(), ships);
+              allAvailableShips.push(...ships);
+          }
+      });
+      
+      // Jos ei tarpeeksi aluksia mihinkään, odota
+      if (allAvailableShips.length < 3) return acts;
+      
+      // Etsi paras kohde ottaen huomioon kaikki käytettävissä olevat alukset
+      let bestTarget = null;
+      let bestScore = -Infinity;
+      let needsGathering = false;
+      
+      potentialTargets.forEach(target => {
+          // Laske etäisyys lähimmästä omasta tähdestä jossa on aluksia
+          let minDist = Infinity;
+          let nearestOwnStar = null;
+          
+          shipsByLocation.forEach((ships, starId) => {
+              const star = this._starById(starId);
+              if (star) {
+                  const dist = distance3D(star.position, target.position);
+                  if (dist < minDist) {
+                      minDist = dist;
+                      nearestOwnStar = star;
+                  }
+              }
           });
           
-        if(!target) {
-          //console.log(`[AI] No target found from ${star.name}`);
-          return;
-        }
+          if (!nearestOwnStar) return;
+          
+          // Perus pisteytys
+          let score = 1000 / (minDist + 50);
+          
+          // Bonukset
+          if (!target.ownerId) score *= 2; // Neutraali
+          if (target.ownerId?.toString() === this.humanId) score *= 1.5; // Ihmispelaaja
+          
+          // Tarkista voitaisiinko valloittaa KAIKILLA aluksilla
+          if (target.defenseLevel > 0) {
+              const survivors = simulatePDFirstStrike(allAvailableShips, target.defenseLevel);
+              const survivorPower = survivors.reduce((sum, s) => sum + shipPower(s), 0);
+              
+              if (survivorPower < 5) {
+                  score *= 0.1; // Liian kova pähkinä
+              } else {
+                  // Tarkista tarvitaanko gathering
+                  const localShips = shipsByLocation.get(nearestOwnStar._id.toString()) || [];
+                  if (this._needsFleetGathering(target, localShips)) {
+                      needsGathering = true;
+                      score *= 0.8; // Pieni vähennys koska vaatii gathering
+                  }
+              }
+          }
+          
+          if (score > bestScore) {
+              bestScore = score;
+              bestTarget = target;
+          }
+      });
+      
+      if (!bestTarget) return acts;
+      
+      // Jos paras kohde vaatii gatheringin
+      if (needsGathering && bestTarget.defenseLevel > 0) {
+          const gatherPoint = this._findGatheringPoint(bestTarget, myStars);
+          if (gatherPoint) {
+              console.log(`[AI] Starting fleet gathering at ${gatherPoint.name} for attack on ${bestTarget.name}`);
+              this.gatheringTarget = gatherPoint;
+              this.gatheringFor = bestTarget;
+              this.gatheringStartTurn = this._turn;
+              
+              return this._startGathering();
+          }
+      }
+      
+      // Muuten hyökkää normaalisti lähimmästä tähdestä
+      const nearestStarWithShips = Array.from(shipsByLocation.keys())
+          .map(id => this._starById(id))
+          .filter(s => s)
+          .sort((a, b) => 
+              distance3D(a.position, bestTarget.position) - 
+              distance3D(b.position, bestTarget.position)
+          )[0];
+      
+      if (nearestStarWithShips) {
+          const ships = shipsByLocation.get(nearestStarWithShips._id.toString());
+          const shipsToSend = Math.min(this.FLEET_TARGET, ships.length);
+          
+          ships.slice(0, shipsToSend).forEach(ship => {
+              acts.push({ 
+                  action: 'MOVE_SHIP',
+                  shipId: ship._id.toString(),
+                  fromStarId: nearestStarWithShips._id.toString(),
+                  toStarId: bestTarget._id.toString()
+              });
+          });
+      }
+      
+      return acts;
+  }
 
-        const firstStrike = target.defenseLevel * 3;
-        const fighters = readyShips.filter(s => s.type === 'Fighter').length;
-        if(fighters && firstStrike >= readyShips.length) {
-          //console.log(`[AI] Skipping attack - PD would destroy all ships`);
-          return;
-        }
-
-        // MUUTOS: Käytä readyShips suoraan
-        readyShips.slice(0, Math.min(this.FLEET_TARGET, readyShips.length))
-          .forEach(ship => {
-            acts.push({ 
-              action: 'MOVE_SHIP',
-              shipId: ship._id.toString(),
-              fromStarId: star._id.toString(),
-              toStarId: target._id.toString()
-            });
+  // Uusi funktio: Aloita gathering
+  _startGathering() {
+      const acts = [];
+      const gatheringStar = this.gatheringTarget;
+      
+      // Lähetä aluksia gathering-pisteeseen
+      this.stars.forEach(star => {
+          if (star.ownerId?.toString() !== this.aiId) return;
+          if (star._id.equals(gatheringStar._id)) return; // Ei siirretä samaan tähteen
+          
+          const ships = this.ships.filter(s => 
+              s.parentStarId?.toString() === star._id.toString() &&
+              s.ownerId?.toString() === this.aiId && 
+              s.state === 'orbiting'
+          );
+          
+          // Jätä muutama alus puolustamaan
+          const shipsToKeep = star.shipyardLevel > 0 ? 2 : 1;
+          const shipsToSend = ships.slice(0, Math.max(0, ships.length - shipsToKeep));
+          
+          shipsToSend.forEach(ship => {
+              acts.push({ 
+                  action: 'MOVE_SHIP',
+                  shipId: ship._id.toString(),
+                  fromStarId: star._id.toString(),
+                  toStarId: gatheringStar._id.toString()
+              });
           });
       });
+      
+      return acts;
+  }
+
+  // Uusi funktio: Jatka gatheringia tai hyökkää
+  _continueGathering() {
+      const acts = [];
+      const gatheringStar = this.gatheringTarget;
+      const targetStar = this.gatheringFor;
+      
+      // Tarkista onko gathering-piste tai kohde vallattu
+      if (gatheringStar.ownerId?.toString() !== this.aiId ||
+          targetStar.ownerId?.toString() === this.aiId) {
+          this.gatheringTarget = null;
+          this.gatheringFor = null;
+          return acts;
+      }
+      
+      // Laske gathering-pisteessä olevat alukset
+      const gatheredShips = this.ships.filter(s => 
+          s.parentStarId?.toString() === gatheringStar._id.toString() &&
+          s.ownerId?.toString() === this.aiId && 
+          s.state === 'orbiting'
+      );
+      
+      // Tarkista onko tarpeeksi aluksia
+      const survivors = simulatePDFirstStrike(gatheredShips, targetStar.defenseLevel);
+      const survivorPower = survivors.reduce((sum, s) => sum + shipPower(s), 0);
+      
+      if (survivorPower >= 8) { // Riittävä ylivoima
+          console.log(`[AI] Fleet gathered! Attacking ${targetStar.name} with ${gatheredShips.length} ships`);
+          
+          // Hyökkää!
+          gatheredShips.forEach(ship => {
+              acts.push({ 
+                  action: 'MOVE_SHIP',
+                  shipId: ship._id.toString(),
+                  fromStarId: gatheringStar._id.toString(),
+                  toStarId: targetStar._id.toString()
+              });
+          });
+          
+          // Nollaa gathering
+          this.gatheringTarget = null;
+          this.gatheringFor = null;
+          this.gatheringStartTurn = null;
+      } else {
+          // Jatka odottamista ja lähetä lisää aluksia
+          return this._startGathering();
+      }
+      
       return acts;
   }
 

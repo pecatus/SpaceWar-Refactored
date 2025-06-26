@@ -62,7 +62,7 @@ const INDICATOR_SPRITE_SCALE = 2.8;
 
 // Luo yksi InstancedMesh per alustyyppi
 const SHIP_INSTANCED_MESHES = {};
-const MAX_SHIPS_PER_TYPE = 1000;
+const MAX_SHIPS_PER_TYPE = 4000;
 
 // Ship instance management
 const shipInstanceData = {
@@ -70,6 +70,14 @@ const shipInstanceData = {
     Destroyer: { count: 0, matrices: [], colors: [], ids: new Map() },
     Cruiser: { count: 0, matrices: [], colors: [], ids: new Map() },
     'Slipstream Frigate': { count: 0, matrices: [], colors: [], ids: new Map() }
+};
+
+// LISÄÄ TÄMÄ UUSI MUUTTUJA:
+const freeInstanceSlots = {
+    Fighter: new Set(),
+    Destroyer: new Set(),
+    Cruiser: new Set(),
+    'Slipstream Frigate': new Set()
 };
 
 // Shipyard ring instances
@@ -108,6 +116,19 @@ const defenseRingData = {
     level4: { count: 0, starIds: [] }
 };
 
+// Combat ring instances
+let COMBAT_RING_INSTANCE = null;
+const MAX_COMBAT_RINGS = 50; // Voidaan nostaa!
+
+const combatRingData = {
+    count: 0,
+    starIds: [],
+    opacities: [],
+    rotations: []
+};
+
+const freeCombatRingSlots = new Set();
+
 // Raycasting ja mouse
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
@@ -124,7 +145,7 @@ const COMBAT_CHECK_INTERVAL = 500;
 let globalLaserPool = null;
 
 // Combat effect limits
-const MAX_ACTIVE_COMBAT_EFFECTS = 10;
+const MAX_ACTIVE_COMBAT_EFFECTS = 100;
 
 // FPS ja frame time laskuri
 let fpsStats = {
@@ -492,30 +513,45 @@ class CombatEffectGroup {
         this.scene = scene;
         this.active = true;
         this.explosionTimer = 0;
+        this.instanceIndex = -1; 
         this.createEffects();
     }
     
     createEffects() {
-        // Punainen combat-rengas planeetan ympärille
-        const ringGeometry = new THREE.RingGeometry(5, 15, 24); // Vähemmän segmenttejä
-        const ringMaterial = new THREE.MeshBasicMaterial({
-            color: 0xff0000,
-            transparent: true,
-            opacity: 0.1,
-            side: THREE.DoubleSide
-        });
-        this.combatRing = new THREE.Mesh(ringGeometry, ringMaterial);
-        this.combatRing.position.copy(this.star.position);
-        this.combatRing.rotation.x = Math.PI / 2;
-        this.scene.add(this.combatRing);
+        if (!COMBAT_RING_INSTANCE) return;
+        
+        const data = combatRingData;
+
+        if (freeCombatRingSlots.size > 0) {
+            this.instanceIndex = freeCombatRingSlots.values().next().value;
+            freeCombatRingSlots.delete(this.instanceIndex);
+            console.log(`Reusing combat ring slot ${this.instanceIndex}`);
+        } else {
+            this.instanceIndex = data.count;
+            data.count++;
+        }
+        
+        const dummy = new THREE.Object3D();
+        dummy.position.copy(this.star.position);
+        dummy.rotation.x = Math.PI / 2;
+        dummy.updateMatrix();
+        
+        COMBAT_RING_INSTANCE.setMatrixAt(this.instanceIndex, dummy.matrix);
+        
+        // Tallenna metadata
+        data.starIds[this.instanceIndex] = this.star.userData.starData._id;
+        data.opacities[this.instanceIndex] = 0.1;
+        data.rotations[this.instanceIndex] = 0;
+        
+        COMBAT_RING_INSTANCE.count = data.count;
+        COMBAT_RING_INSTANCE.instanceMatrix.needsUpdate = true;
     }
     
     update(delta, ships) {
-        if (!this.active) return;
+        if (!this.active || this.instanceIndex === -1) return;
         
-        // Pulssaa opacity
-        const pulse = Math.sin(Date.now() * 0.003) * 0.3 + 0.3;
-        this.combatRing.material.opacity = pulse;
+        // Ei värianimaatiota - vain päivitä rotaatio
+        combatRingData.rotations[this.instanceIndex] += delta * 0.2;
         
         // Räjähdykset alusten määrän mukaan
         this.explosionTimer += delta;
@@ -580,9 +616,27 @@ class CombatEffectGroup {
     
     cleanup() {
         this.active = false;
-        this.scene.remove(this.combatRing);
-        this.combatRing.geometry.dispose();
-        this.combatRing.material.dispose();
+        
+        if (this.instanceIndex !== -1 && COMBAT_RING_INSTANCE) {
+            const data = combatRingData;
+            
+            // Piilota instanssi
+            const dummy = new THREE.Object3D();
+            dummy.scale.set(0, 0, 0);
+            dummy.updateMatrix();
+            COMBAT_RING_INSTANCE.setMatrixAt(this.instanceIndex, dummy.matrix);
+            
+            // Siivoa metadata
+            data.starIds[this.instanceIndex] = null;
+            data.opacities[this.instanceIndex] = 0;
+            data.rotations[this.instanceIndex] = 0;
+            
+            // Vapauta slotti uudelleenkäyttöön
+            freeCombatRingSlots.add(this.instanceIndex);
+            console.log(`Freed combat ring slot ${this.instanceIndex}, now ${freeCombatRingSlots.size} free slots`);
+            
+            COMBAT_RING_INSTANCE.instanceMatrix.needsUpdate = true;
+        }
     }
 }
 
@@ -654,6 +708,8 @@ export function initThreeIfNeeded(mountTo = document.body) {
     initShipyardRingInstances();
 
     initDefenseRingInstances();
+
+    initCombatRingInstances();
 
     // Indikaattori-materiaalit
     initIndicatorMaterials();
@@ -761,8 +817,17 @@ function initShipInstances() {
 }
 
 function initShipyardRingInstances() {
+    Object.keys(shipyardRingData).forEach(level => {
+        shipyardRingData[level] = { 
+            count: 0, 
+            rotations: [], 
+            speeds: [], 
+            starIds: [] 
+        };
+    });
+    
     const tubeRadius = 0.25;
-    const baseRadius = 10; // Käytetään peruskokoa, skaalataan matriisissa
+    const baseRadius = 10;
     
     const ringTilts = [
         new THREE.Euler(THREE.MathUtils.degToRad(45), 0, 0),   // Lvl 1
@@ -832,6 +897,27 @@ function initDefenseRingInstances() {
         scene.add(instancedMesh);
         DEFENSE_RING_INSTANCES[level] = instancedMesh;
     });
+}
+
+function initCombatRingInstances() {
+    const geometry = new THREE.RingGeometry(5, 15, 24);
+    
+    const material = new THREE.MeshBasicMaterial({
+        color: 0xff0000,  // Punainen
+        transparent: true,
+        opacity: 0.2,     // Staattinen 0.3 opacity
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending
+    });
+    
+    COMBAT_RING_INSTANCE = new THREE.InstancedMesh(geometry, material, MAX_COMBAT_RINGS);
+    COMBAT_RING_INSTANCE.count = 0;
+    COMBAT_RING_INSTANCE.frustumCulled = false;
+    
+    // Ei tarvita väripufferia koska käytetään vain punaista
+    
+    scene.add(COMBAT_RING_INSTANCE);
 }
 
 function initIndicatorMaterials() {
@@ -1617,6 +1703,16 @@ export function buildFromSnapshot(snap) {
         if (mesh && !scene.children.includes(mesh)) scene.add(mesh);
     });
 
+    // COMBAT RING INSTANCES
+    if (!COMBAT_RING_INSTANCE) {
+        initCombatRingInstances();
+    }
+
+    // Varmista että combat ring instance on scenessä
+    if (COMBAT_RING_INSTANCE && !scene.children.includes(COMBAT_RING_INSTANCE)) {
+        scene.add(COMBAT_RING_INSTANCE);
+    }
+
     // NEBULAT
     if (nebulaSprites.length === 0) {
         //console.log("Recreating nebula sprites...");
@@ -1843,10 +1939,15 @@ function spawnShips(shipList) {
             dummy.updateMatrix();
             
             // Tallenna instance dataan
-            const instanceIndex = data.count;
-            data.matrices[instanceIndex] = dummy.matrix.clone();
-            data.colors[instanceIndex] = shipColor;
-            data.ids.set(shipData._id, instanceIndex);
+
+            let instanceIndex;
+            if (freeInstanceSlots[type].size > 0) {
+                instanceIndex = freeInstanceSlots[type].values().next().value;
+                freeInstanceSlots[type].delete(instanceIndex);
+                console.log(`Reusing slot ${instanceIndex} for ${type}`);
+            } else {
+                instanceIndex = data.count;
+            }
             
             // Päivitä instanced mesh matriisi ja väri
             instancedMesh.setMatrixAt(instanceIndex, dummy.matrix);
@@ -2008,7 +2109,7 @@ function updateStarIndicators(starData, starMesh) {
     }
 }
 
-function removeOldIndicators(starData, preserveDefenseRings = false) {
+function removeOldIndicators(starData, preserveDefenseRings = false, preserveShipyardRings = false) {
 
     // Mine indicators
     if (starData.mineIndicatorMeshes) {
@@ -2063,41 +2164,25 @@ function removeOldIndicators(starData, preserveDefenseRings = false) {
     }
 
     // Shipyard rings - poista instanssit
-    if (starData.shipyardRingInstances) {
+    if (!preserveShipyardRings && starData.shipyardRingInstances) {
         starData.shipyardRingInstances.forEach(ringRef => {
             const data = shipyardRingData[ringRef.level];
             const instancedMesh = SHIPYARD_RING_INSTANCES[ringRef.level];
-
-           // Jos poistettava on JOUKON VIIMEINEN, pienennä count-lukua.
-           // Muussa tapauksessa piilotetaan instanssi skaalalla 0
-           const dummy = new THREE.Object3D();
+            
+            if (!data || !instancedMesh) return;
+            
+            // Piilota instanssi
+            const dummy = new THREE.Object3D();
+            dummy.scale.set(0, 0, 0);
+            dummy.updateMatrix();
+            instancedMesh.setMatrixAt(ringRef.index, dummy.matrix);
+            
+            // TÄRKEÄ: Nollaa metadata OIKEIN
             data.rotations[ringRef.index] = null;
-            data.speeds[ringRef.index]    = null;
-            data.starIds[ringRef.index]   = null;
-
-            // Jos poistetaan viimeinen käytetty instanssi, pudota count-arvoa
-            if (ringRef.index === data.count - 1) {
-                // poistetaan viimeinen → pelkkä count--
-                data.count--;
-                instancedMesh.count = data.count;
-            } else {
-                // korvaa poistettava instanssi muuttamalla viimeinen tilalle
-                const last = data.count - 1;
-
-                // 1) kopioi matriisi
-                instancedMesh.getMatrixAt(last, dummy.matrix);
-                instancedMesh.setMatrixAt(ringRef.index, dummy.matrix);
-
-                // 2) kopioi metadata
-                data.rotations[ringRef.index] = data.rotations[last];
-                data.speeds[ringRef.index]    = data.speeds[last];
-                data.starIds[ringRef.index]   = data.starIds[last];
-
-                // 3) nollaa viimeinen slotti ja pudota count
-                data.rotations[last] = data.speeds[last] = data.starIds[last] = null;
-                data.count--;
-                instancedMesh.count = data.count;
-            }
+            data.speeds[ringRef.index] = null;
+            data.starIds[ringRef.index] = null;  // TÄMÄ ON KRIITTINEN
+            
+            // Älä muuta count-arvoa tässä
             instancedMesh.instanceMatrix.needsUpdate = true;
         });
         starData.shipyardRingInstances = [];
@@ -2196,11 +2281,79 @@ function updatePopulationIndicators(starData, starMesh) {
 function updateShipyardIndicator(starData, starMesh) {
     if (!starData.shipyardLevel || starData.shipyardLevel === 0) return;
     
+    // Tarkista onko rengas jo olemassa tälle tähdelle
+    if (starData.shipyardRingInstances && starData.shipyardRingInstances.length > 0) {
+        // Jos renkaiden määrä EI vastaa tasoa, päivitys tarvitaan
+        if (starData.shipyardRingInstances.length !== starData.shipyardLevel) {
+            console.log(`[SHIPYARD] Ring count mismatch: ${starData.shipyardRingInstances.length} rings but level ${starData.shipyardLevel}`);
+            // Jatka normaalisti siivous-osioon
+        } else {
+            // Tarkista että renkaat ovat valideja
+            let allValid = true;
+            for (const ringRef of starData.shipyardRingInstances) {
+                const data = shipyardRingData[ringRef.level];
+                if (!data || data.starIds[ringRef.index] !== starData._id) {
+                    allValid = false;
+                    break;
+                }
+            }
+            
+            if (allValid) {
+                console.log(`[SHIPYARD] ${starData.name} already has correct rings`);
+                return;
+            }
+        }
+    }
+
+    // DEBUG: Tarkista lähtötilanne
+    console.log(`[SHIPYARD] Creating rings for ${starData.name} (${starData._id}), level: ${starData.shipyardLevel}`);
+    
+    // SIIVOA vanhat instanssit ensin JOS level on muuttunut
+    if (starData.shipyardRingInstances && starData.shipyardRingInstances.length > 0) {
+        // Tarkista onko level muuttunut
+        if (starData.shipyardRingInstances.length !== starData.shipyardLevel) {
+            console.log(`[SHIPYARD] Level changed for ${starData.name}: ${starData.shipyardRingInstances.length} -> ${starData.shipyardLevel}`);
+            
+            // Poista KAIKKI vanhat renkaat
+            starData.shipyardRingInstances.forEach(ringRef => {
+                const data = shipyardRingData[ringRef.level];
+                const instancedMesh = SHIPYARD_RING_INSTANCES[ringRef.level];
+                
+                if (!data || !instancedMesh) return;
+                
+                // Piilota instanssi
+                const dummy = new THREE.Object3D();
+                dummy.scale.set(0, 0, 0);
+                dummy.updateMatrix();
+                instancedMesh.setMatrixAt(ringRef.index, dummy.matrix);
+                
+                // Nollaa metadata
+                data.rotations[ringRef.index] = null;
+                data.speeds[ringRef.index] = null;
+                data.starIds[ringRef.index] = null;
+                
+                instancedMesh.instanceMatrix.needsUpdate = true;
+            });
+            
+            starData.shipyardRingInstances = [];
+        } else {
+            // Level ei muuttunut, älä tee mitään
+            return;
+        }
+    }
+    
     const starRadius = starMesh.geometry.parameters.radius * (starMesh.scale.x || 1);
     const yOffset = starRadius + INDICATOR_SPRITE_SCALE * 1.5 +
                    (starData.defenseLevel ? starData.defenseLevel * 1.5 + 1.0 : 0);
     
-    // Shipyard sprite (säilytetään ennallaan)
+    // Shipyard sprite
+    if (starData.shipyardIndicatorSprite) {
+        scene.remove(starData.shipyardIndicatorSprite);
+        if (starData.shipyardIndicatorSprite.material) {
+            starData.shipyardIndicatorSprite.material.dispose();
+        }
+    }
+    
     const sprite = new THREE.Sprite(shipyardSpriteMaterial.clone());
     let baseColor = getIndicatorColor(starData.ownerId);
     sprite.material.color.copy(baseColor).lerp(new THREE.Color(0xffffff), 0.3);
@@ -2215,25 +2368,55 @@ function updateShipyardIndicator(starData, starMesh) {
     starData.shipyardIndicatorSprite = sprite;
     
     // Shipyard rings - käytä instansseja
-    starData.shipyardRingInstances = []; // Tallennetaan vain indeksit
+    starData.shipyardRingInstances = [];
     const baseRingRadius = starRadius + INDICATOR_SPRITE_SCALE * 3;
     
     const dummy = new THREE.Object3D();
     
+    // TÄRKEÄ: Luo VAIN shipyardLevel määrä renkaita
     for (let lvl = 1; lvl <= starData.shipyardLevel && lvl <= 4; lvl++) {
         const levelKey = `level${lvl}`;
         const instancedMesh = SHIPYARD_RING_INSTANCES[levelKey];
         const data = shipyardRingData[levelKey];
         
-        const instanceIndex = data.count;
+        // TARKISTA että instanced mesh on olemassa
+        if (!instancedMesh) {
+            console.error(`[SHIPYARD] No instanced mesh for ${levelKey}!`);
+            continue;
+        }
+        
+        // ETSI tyhjä slotti TAI käytä count:ia jos kaikki slotit ovat tyhjiä
+        let instanceIndex = -1;
+
+        // Ensin tarkista onko tyhjää slottia olemassa olevien joukossa
+        for (let i = 0; i < data.count; i++) {
+            if (!data.starIds[i] || data.starIds[i] === starData._id) {
+                instanceIndex = i;
+                break;
+            }
+        }
+
+        // Jos ei löytynyt, käytä seuraavaa tyhjää
+        if (instanceIndex === -1) {
+            if (data.count < MAX_SHIPYARDS) {
+                instanceIndex = data.count;
+            } else {
+                console.error(`[SHIPYARD] No free slots for ${levelKey}!`);
+                continue;
+            }
+        }
+        
+        console.log(`[SHIPYARD]   Creating ring ${lvl}/${starData.shipyardLevel} at index ${instanceIndex}`);
         
         // Aseta positio ja skaalaus
         dummy.position.copy(starMesh.position);
-        const scaleRatio = baseRingRadius / 10; // 10 on base radius geometriassa
+        const scaleRatio = baseRingRadius / 10;
         dummy.scale.set(scaleRatio, scaleRatio, scaleRatio);
         
         // Aseta perusrotaatio
-        dummy.rotation.copy(instancedMesh.userData.baseRotation);
+        if (instancedMesh.userData.baseRotation) {
+            dummy.rotation.copy(instancedMesh.userData.baseRotation);
+        }
         dummy.updateMatrix();
         
         // Tallenna instanssiin
@@ -2254,10 +2437,16 @@ function updateShipyardIndicator(starData, starMesh) {
         
         starData.shipyardRingInstances.push({ level: levelKey, index: instanceIndex });
         
-        data.count++;
-        instancedMesh.count = data.count;
+        // Päivitä count vain jos tarvitaan
+        if (instanceIndex >= data.count) {
+            data.count = instanceIndex + 1;
+        }
+        
+        instancedMesh.count = Math.max(instancedMesh.count, data.count);
         instancedMesh.instanceMatrix.needsUpdate = true;
     }
+    
+    console.log(`[SHIPYARD] Created ${starData.shipyardRingInstances.length} rings for ${starData.name}`);
 }
 
 function getIndicatorColor(ownerId) {
@@ -2306,6 +2495,29 @@ function updateShipyardRings(delta) {
     });
 }
 
+function updateCombatRings(delta) {
+    if (!COMBAT_RING_INSTANCE || combatRingData.count === 0) return;
+    
+    const dummy = new THREE.Object3D();
+    
+    for (let i = 0; i < combatRingData.count; i++) {
+        if (combatRingData.starIds[i] === null) continue;
+        
+        const starMesh = starsById.get(combatRingData.starIds[i]);
+        if (!starMesh) continue;
+        
+        // Päivitä positio ja rotaatio
+        dummy.position.copy(starMesh.position);
+        dummy.rotation.x = Math.PI / 2;
+        dummy.rotation.z = combatRingData.rotations[i];
+        dummy.updateMatrix();
+        
+        COMBAT_RING_INSTANCE.setMatrixAt(i, dummy.matrix);
+    }
+    
+    COMBAT_RING_INSTANCE.instanceMatrix.needsUpdate = true;
+}
+
 export function applyDiff(diffArr = []) {
     //console.log("Applying diff:", diffArr);
     
@@ -2315,23 +2527,36 @@ export function applyDiff(diffArr = []) {
                 const starMesh = starsById.get(act.starId);
                 if (!starMesh) break;
                 
+                const star = starMesh.userData.starData;
+                const oldShipyardLevel = star.shipyardLevel;
+                
                 // Päivitä star data
                 if (act.starData) {
-                    const star = starMesh.userData.starData;
                     Object.assign(star, act.starData);
-                    
-                    // Jos defense level muuttui, päivitä renkaat
-                    if (act.type === 'Defense Upgrade') {
-                        updateDefenseRings(star, starMesh);
-                    }
-                    
-                    // Päivitä KAIKKI indikaattorit jos mine tai infra muuttui
-                    if (act.type === 'Mine' || act.type.startsWith('Infrastructure')) {
-                        updateStarIndicators(star, starMesh);
-                    }
                 }
                 
-                //console.log(`${act.type} completed at star ${act.starId}`);
+                // Jos defense level muuttui, päivitä renkaat
+                if (act.type === 'Defense Upgrade') {
+                    updateDefenseRings(star, starMesh);
+                }
+                
+                // KORJATTU: Tarkista startsWith sen sijaan että vertailee tarkkoja stringejä
+                if (act.type === 'Shipyard' || act.type.startsWith('Shipyard')) {
+                    //console.log(`[COMPLETE_PLANETARY] Shipyard update for ${star.name}`);
+                    //console.log(`  Type: ${act.type}`);
+                    //console.log(`  Old level: ${oldShipyardLevel}, New level: ${star.shipyardLevel}`);
+                    
+                    // Poista vanhat renkaat ensin
+                    removeOldIndicators(star, true, false);
+                    // Luo uudet renkaat
+                    updateShipyardIndicator(star, starMesh);
+                }
+                
+                // Päivitä KAIKKI indikaattorit jos mine tai infra muuttui
+                if (act.type === 'Mine' || act.type.startsWith('Infrastructure')) {
+                    updateStarIndicators(star, starMesh);
+                }
+                
                 break;
             }
 
@@ -2340,12 +2565,29 @@ export function applyDiff(diffArr = []) {
                 if (!starMesh) break;
                 
                 const star = starMesh.userData.starData;
+                const oldShipyardLevel = star.shipyardLevel;
+                
+                // Päivitä kaikki kentät
                 Object.assign(star, act.updatedFields);
                 
                 // Jos populaatio muuttui, päivitä indikaattorit
                 if (act.updatedFields.population !== undefined) {
                     updatePopulationIndicators(star, starMesh);
                 }
+                
+                // TÄRKEÄ: Jos shipyard level muuttui, päivitä renkaat HETI
+                if (act.updatedFields.shipyardLevel !== undefined && 
+                    act.updatedFields.shipyardLevel !== oldShipyardLevel) {
+                    console.log(`[STAR_UPDATED] Shipyard level changed: ${oldShipyardLevel} -> ${act.updatedFields.shipyardLevel}`);
+                    updateShipyardIndicator(star, starMesh);
+                    
+                }
+                
+                // Jos mines muuttui, päivitä kaikki indikaattorit
+                if (act.updatedFields.mines !== undefined) {
+                    updateStarIndicators(star, starMesh);
+                }
+                
                 break;
             }
 
@@ -2583,7 +2825,7 @@ export function applyDiff(diffArr = []) {
                 }
                 break;
             }
-
+                        
             case 'SHIP_DESTROYED': {
                 const virtualShip = shipsById.get(act.shipId);
                 if (!virtualShip) break;
@@ -2617,6 +2859,10 @@ export function applyDiff(diffArr = []) {
                     
                     instancedMesh.setMatrixAt(instanceIndex, dummy.matrix);
                     instancedMesh.instanceMatrix.needsUpdate = true;
+                    
+                    // LISÄÄ TÄMÄ: Vapauta slotti uudelleenkäyttöön
+                    freeInstanceSlots[type].add(instanceIndex);
+                    console.log(`Freed slot ${instanceIndex} for ${type}, now ${freeInstanceSlots[type].size} free slots`);
                 }
                 
                 // Remove from tracking
@@ -2625,7 +2871,6 @@ export function applyDiff(diffArr = []) {
                 const starId = virtualShip.userData.shipData?.parentStarId;
                 markStarForCombatCheck(starId);
                 
-                //console.log(`Destroyed ship ${act.shipId} (hidden instance ${instanceIndex})`);
                 break;
             }
 
@@ -2760,6 +3005,9 @@ export function startAnimateLoop() {
         if (window.isPaused) delta = 0;
         if (window.TWEEN) window.TWEEN.update();
         
+
+        updateCombatRings(delta)
+
         // Update explosions
         updateExplosions(delta);
 
@@ -3309,6 +3557,11 @@ export function cleanupScene() {
         };
     });
     
+    //Tyhjennä myös vapaat slotit
+    Object.keys(freeInstanceSlots).forEach(type => {
+        freeInstanceSlots[type].clear();
+    });
+
     // Clear ship tracking
     shipsById.clear();
     shipsByStarClient.clear();
@@ -3414,6 +3667,21 @@ export function cleanupScene() {
     combatEffects.clear();
     starsToCheck.clear();
     
+    // Cleanup combat ring instance
+    if (COMBAT_RING_INSTANCE) {
+        scene.remove(COMBAT_RING_INSTANCE);
+        COMBAT_RING_INSTANCE.geometry.dispose();
+        COMBAT_RING_INSTANCE.material.dispose();
+        COMBAT_RING_INSTANCE = null;
+    }
+
+    combatRingData.count = 0;
+    combatRingData.starIds = [];
+    combatRingData.opacities = [];
+    combatRingData.rotations = [];
+
+    freeCombatRingSlots.clear();
+
     // Clear tweens
     if (window.TWEEN) {
         window.TWEEN.removeAll();
@@ -3453,6 +3721,15 @@ export function cleanupScene() {
             mesh.geometry.dispose();
             mesh.material.dispose();
             mesh.count = 0;
+            
+            // LISÄÄ TÄMÄ - nollaa kaikki instanssit
+            const dummy = new THREE.Object3D();
+            dummy.scale.set(0, 0, 0);
+            dummy.updateMatrix();
+            for (let i = 0; i < MAX_SHIPYARDS; i++) {
+                mesh.setMatrixAt(i, dummy.matrix);
+            }
+            mesh.instanceMatrix.needsUpdate = true;
         }
     });
 
@@ -3588,6 +3865,31 @@ function cleanupCombatChecks() {
     
     // console.log(`✅ [COMBAT-CLEANUP] Fixed ${fixed} ships, removed ${removed} invalid entries`);
 }
+
+window.debugShipyardAllocation = function() {
+    console.group('🏭 Shipyard Allocation Debug');
+    
+    ['level1', 'level2', 'level3', 'level4'].forEach(level => {
+        const data = shipyardRingData[level];
+        console.group(`${level}:`);
+        console.log('Count:', data.count);
+        console.log('Allocations:');
+        
+        for (let i = 0; i < Math.max(5, data.count); i++) {
+            const starId = data.starIds[i];
+            if (starId) {
+                const star = starsById.get(starId);
+                const starName = star?.userData?.starData?.name || 'Unknown';
+                console.log(`  [${i}]: ${starName} (${starId})`);
+            } else {
+                console.log(`  [${i}]: <empty>`);
+            }
+        }
+        console.groupEnd();
+    });
+    
+    console.groupEnd();
+};
 
 // Debug funktio alusten tarkistamiseen
 window.debugShips = function() {
