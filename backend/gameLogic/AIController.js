@@ -116,39 +116,55 @@ function earlyWeights(totalMines) {
   return null;
 }
 
+/**
+ * Simuloi planetaarisen puolustuksen (PD) ensi-iskun ja palauttaa selviytyneet alukset.
+ * @param {Array<Object>} ships - Hyökkäävä laivasto. Jokaisella aluksella on { type, hp }.
+ * @param {number} defenseLevel - Puolustavan planeetan PD-taso.
+ * @returns {Array<Object>} - Laivasto, joka selvisi ensi-iskusta.
+ */
 function simulatePDFirstStrike(ships, defenseLevel) {
-    if (defenseLevel === 0) return ships;
-    
+    if (defenseLevel === 0) {
+        return ships; // Ei puolustusta, kaikki selviävät.
+    }
+
     const shots = defenseLevel * 3;
-    const survivors = [...ships];
-    let shotsLeft = shots;
+    const PD_DAMAGE_PER_SHOT = 2; // Oletusvahinko per laukaus
+    let totalDamagePool = shots * PD_DAMAGE_PER_SHOT;
+
+    // Luodaan kopio laivastosta, jotta emme muokkaa alkuperäistä.
+    // Lisätään väliaikainen hp-kenttä simulaatiota varten.
+    const fleetCopy = ships.map(ship => ({ 
+        ...ship, 
+        simHp: ship.hp || 1 // Varmistetaan, että hp on olemassa
+    }));
+
+    // Kohdinnuslogiikka: PD ampuu heikoimpia ensin (Fighter -> Destroyer -> Cruiser)
+    const targetPriority = ['Fighter', 'Destroyer', 'Cruiser'];
     
-    // PD ampuu Cruisereita ensin (koska ne ovat vaarallisimpia)
-    for (let i = survivors.length - 1; i >= 0 && shotsLeft > 0; i--) {
-        const ship = survivors[i];
-        if (ship.type === 'Cruiser') {
-            // Cruiser ottaa 1 dmg, hp on 3
-            if (shotsLeft >= 3) {
-                survivors.splice(i, 1);
-                shotsLeft -= 3;
+    for (const shipType of targetPriority) {
+        // Käydään läpi kaikki tämän tyypin alukset
+        for (const ship of fleetCopy) {
+            if (ship.type === shipType && totalDamagePool > 0) {
+                const damageNeeded = ship.simHp;
+                
+                // Jos vahinkoa on tarpeeksi tuhoamaan alus
+                if (totalDamagePool >= damageNeeded) {
+                    totalDamagePool -= damageNeeded;
+                    ship.simHp = 0; // Merkitään tuhotuksi
+                } else {
+                    // Ei tarpeeksi vahinkoa koko aluksen tuhoamiseen,
+                    // mutta kaikki jäljellä oleva vahinko kohdistetaan siihen.
+                    ship.simHp -= totalDamagePool;
+                    totalDamagePool = 0;
+                }
             }
-            // Ei tarpeeksi ammuksia tappamaan Cruiseria
-            else {
-                break;
-            }
+            if (totalDamagePool <= 0) break; // Vahinko loppui kesken
         }
+        if (totalDamagePool <= 0) break;
     }
-    
-    // Sitten muut alukset (2 dmg, Fighter hp=1, Destroyer hp=2)
-    for (let i = survivors.length - 1; i >= 0 && shotsLeft > 0; i--) {
-        const ship = survivors[i];
-        if (ship.type !== 'Cruiser') {
-            survivors.splice(i, 1);
-            shotsLeft--;
-        }
-    }
-    
-    return survivors;
+
+    // Palautetaan ne alukset, joiden simuloitu HP on > 0.
+    return fleetCopy.filter(ship => ship.simHp > 0);
 }
 
 /* ---------------------------------------------------------------------------

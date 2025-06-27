@@ -13,7 +13,10 @@ import {
     selectStar,
     deselectStar,
     cleanupScene,
-    getSceneDebugInfo 
+    getSceneDebugInfo,
+    getSelectedShips,
+    selectShipsByIds, 
+    focusOnGroup
 } from './scene.js';
 
 /* ========================================================================== */
@@ -50,6 +53,10 @@ const INFRA_LIMITS = {
 /* ========================================================================== */
 
 let gameState = null;
+let controlGroups = {}; // <-- TÄMÄ
+let lastGroupKey = null; // <-- TÄMÄ
+let lastGroupKeyTime = 0; // <-- TÄMÄ
+const DOUBLE_PRESS_THRESHOLD = 350; // ms
 let myPlayerId = null;
 let playerResources = { credits: 1000, minerals: 500 };
 let gameInProgress = false;
@@ -292,6 +299,7 @@ document.addEventListener('keydown', (event) => {
         }
     }
     
+    
     // --- F4 DEBUG KÄSITTELY ---
     else if (event.key === 'F4') {
         event.preventDefault();
@@ -395,7 +403,39 @@ document.addEventListener('keydown', (event) => {
             }
         }
     }
+
+    // Käsittele sitten vain pelitilassa toimivat numeronäppäimet
+    const numKey = parseInt(event.key);
+    if (!isNaN(numKey) && numKey >= 0 && numKey <= 9) {
+        event.preventDefault();
+
+        // CTRL + [0-9] = Luo/aseta ryhmä
+        if (event.ctrlKey || event.metaKey) {
+            const currentSelection = getSelectedShips();
+            const selectedShipIds = currentSelection.map(ship => ship.userData.shipData._id);
+            controlGroups[numKey] = selectedShipIds;
+            updateGroupsPanel(); // Päivitä UI-napit
+            return;
+        }
+
+        // Pelkkä [0-9] = Valitse / Tarkenna ryhmään
+        const now = performance.now();
+        const shipIds = controlGroups[numKey];
+
+        if (shipIds && shipIds.length > 0) {
+            if (lastGroupKey === numKey && now - lastGroupKeyTime < DOUBLE_PRESS_THRESHOLD) {
+                // TUPLAKLIKKAUS -> Valitse ja Tarkenna
+                focusOnGroup(shipIds);
+            } else {
+                // YKSITTÄINEN KLIKKAUS -> Valitse
+                selectShipsByIds(shipIds);
+            }
+        }
+        lastGroupKey = numKey;
+        lastGroupKeyTime = now;
+    }
 });
+
     
     // Button hover sounds (simplified)
     document.querySelectorAll('button').forEach(button => {
@@ -462,6 +502,61 @@ function setupTooltips() {
             tooltipElement.classList.remove('visible');
         });
     });
+}
+
+function updateGroupsPanel() {
+    const groupsButtonsContainer = document.getElementById('groupsButtonsContainer');
+    const groupsPanel = document.getElementById('groupsPanel');
+    if (!groupsButtonsContainer || !groupsPanel) return;
+
+    groupsButtonsContainer.innerHTML = '';
+    let hasVisibleGroups = false;
+
+    if (!gameState || !gameState.ships) {
+        groupsPanel.style.display = 'none';
+        return;
+    }
+    
+    const liveShipIds = new Set(gameState.ships.map(s => s._id.toString()));
+
+    Object.keys(controlGroups).sort((a, b) => a - b).forEach(key => {
+        controlGroups[key] = controlGroups[key].filter(id => liveShipIds.has(id));
+        
+        const liveShipsInGroup = controlGroups[key];
+        if (liveShipsInGroup.length === 0) {
+            delete controlGroups[key];
+            return;
+        }
+
+        hasVisibleGroups = true;
+        const counts = { Fighter: 0, Destroyer: 0, Cruiser: 0, 'Slipstream Frigate': 0 };
+        
+        liveShipsInGroup.forEach(shipId => {
+            const shipData = gameState.ships.find(s => s._id.toString() === shipId);
+            if (shipData && counts.hasOwnProperty(shipData.type)) {
+                counts[shipData.type]++;
+            }
+        });
+
+        const btn = document.createElement('button');
+        btn.className = 'group-btn';
+        btn.dataset.groupId = key;
+        btn.innerHTML = `
+            <div class="font-semibold text-sm">Group ${key}</div>
+            <div class="text-xs">F:${counts.Fighter}, D:${counts.Destroyer}, C:${counts.Cruiser}</div>
+            <div class="text-xs font-bold">Total: ${liveShipsInGroup.length}</div>
+        `;
+
+        btn.addEventListener('click', () => {
+            const shipIds = controlGroups[key];
+            if (shipIds && shipIds.length > 0) {
+                focusOnGroup(shipIds); // Klikkaus tekee sekä valinnan että tarkennuksen
+            }
+        });
+        groupsButtonsContainer.appendChild(btn);
+    });
+
+    groupsPanel.style.display = hasVisibleGroups ? 'flex' : 'none';
 }
 
 /* ========================================================================== */
@@ -780,9 +875,11 @@ function handleStarSelection(starData) {
     if (!starData) {
         selectedStar = null;
         hidePlanetMenu();
+        resetAllProgressBars();
         return;
     }
-    
+
+    resetAllProgressBars();
     selectedStar = starData; // Store the selected star globally
     showPlanetMenu(starData);
 }
@@ -1698,7 +1795,7 @@ function updateUIFromDiff(diff) {
                         //console.log(`[CLIENT-STATE] Poistettu alus ${action.shipId}. Aluksia jäljellä: ${finalCount}`);
                     }
                 }
-                
+                updateGroupsPanel(); // Päivitä ryhmäpaneeli, koska aluksia on voinut tuhoutua
                 updateResourceDisplay(); // Päivitä upkeep
                 break;
                 
@@ -1732,6 +1829,12 @@ function updateUIFromDiff(diff) {
                     console.log(`💰 Resources updated: Credits ${oldCredits} -> ${playerResources.credits}, Minerals ${oldMinerals} -> ${playerResources.minerals}`);
                     updateResourceDisplay();
                 }
+                break;
+
+            case 'SHIP_IN_SLIPSTREAM':
+                // Tämä on puhtaasti visuaalinen efekti, joten emme päivitä
+                // client.js:n UI-elementtejä. applyDiff(diff) hoitaa tämän
+                // välittämisen scene.js:lle, jossa efekti piirretään.
                 break;
 
             case 'CONQUEST_STARTED':
