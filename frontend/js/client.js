@@ -54,6 +54,8 @@ const SHIP_COST = {
     'Slipstream Frigate': [120, 180, 55, 4]
 };
 
+const UPKEEP_GALACTIC_HUB = 15;
+
 // Infrastructure limits (should match backend)
 const INFRA_LIMITS = {
     1: { maxPop: 5,  maxMines: 5,  maxDefense: 1, maxShipyard: 1 },
@@ -1739,6 +1741,10 @@ function updateResourceDisplay() {
                 // Planetary upkeep
                 creditUpkeep += (star.defenseLevel || 0) * 2;  // PD upkeep
                 creditUpkeep += (star.shipyardLevel || 0) * 3; // Shipyard upkeep
+                if (star.hasGalacticHub) {
+                    creditUpkeep += UPKEEP_GALACTIC_HUB;
+                }
+           
             });
     }
     

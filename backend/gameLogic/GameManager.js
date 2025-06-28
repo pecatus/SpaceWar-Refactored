@@ -41,6 +41,12 @@ const COMBAT_CONSTANTS = {
 // Slipstream vakiot
 const SLIPSTREAM_RADIUS = 37.5; // 25 * 1.5
 
+// Slipstreamin lähimpien tähtien etsinnän apufunktio
+function distance3D(a, b) {
+  const dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
+  return Math.hypot(dx, dy, dz);
+}
+
 /* ------------------------------------------------------------------------- */
 
 class GameManager extends EventEmitter {
@@ -655,19 +661,42 @@ async _checkConquestStart(star, ships, diff) {
 }
 
     /**
-     * Luo starlane-yhteydet uuden Hubin ja kaikkien aiempien Hubien välille.
+     * Luo starlane-yhteydet uuden Hubin ja kahden lähimmän Hubien välille.
      * @param {Star} newHubStar - Tähti, johon uusi Hub juuri valmistui.
      */
     async _updateHubNetwork(newHubStar) {
-        const newConnections = [];
         const newHubStarIdStr = newHubStar._id.toString();
 
-        // Käydään läpi GLOBAALI lista kaikista Hubeista
-        for (const existingHubIdStr of this.galacticHubs) {
-            if (existingHubIdStr === newHubStarIdStr) continue;
+        // 1. Etsi kaikki olemassa olevat Hubit (paitsi uusi itse)
+        const existingHubs = [];
+        for (const hubId of this.galacticHubs) {
+            if (hubId !== newHubStarIdStr) {
+                const star = this._star(hubId);
+                if (star) existingHubs.push(star);
+            }
+        }
 
-            const existingHub = this._star(existingHubIdStr);
-            if (!existingHub) continue;
+        // Jos ei ole muita Hubeja, ei tarvitse tehdä mitään
+        if (existingHubs.length === 0) {
+            return;
+        }
+
+        // 2. Laske etäisyydet uuteen Hubiin ja järjestä ne
+        const hubsWithDistance = existingHubs.map(star => ({
+            star: star,
+            distance: distance3D(star.position, newHubStar.position)
+        }));
+
+        hubsWithDistance.sort((a, b) => a.distance - b.distance);
+
+        // 3. Ota enintään kaksi lähintä
+        const closestHubs = hubsWithDistance.slice(0, 2);
+
+        const newConnections = [];
+
+        // 4. Luo yhteydet näihin lähimpiin Hubeihin
+        for (const { star: existingHub } of closestHubs) {
+            const existingHubIdStr = existingHub._id.toString();
 
             // Luo kaksisuuntainen yhteys
             newHubStar.connections.push(existingHub._id);
@@ -679,7 +708,7 @@ async _checkConquestStart(star, ships, diff) {
 
         this._pendingSaves.stars.add(newHubStar);
 
-        // Lähetä clientille VAIN uudet yhteydet
+        // 5. Lähetä clientille VAIN uudet yhteydet
         if (newConnections.length > 0) {
             const diff = [{
                 action: 'HUB_NETWORK_UPDATED',
