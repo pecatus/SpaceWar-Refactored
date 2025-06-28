@@ -1738,7 +1738,7 @@ function spawnExplosion(pos, n = 18) {
     explosions.push({ points, velocities, life: 0, ttl: 0.8 });
 }
 
-// Uusi funktio slipstream-säihkeen luomiseen
+// slipstream-säihkeen luominen
 function spawnSlipstreamSparkle(position) {
     const n = 5 + Math.floor(Math.random() * 5); // 5-9 partikkelia
     const positions = new Float32Array(n * 3);
@@ -1770,7 +1770,7 @@ function spawnSlipstreamSparkle(position) {
     slipstreamSparkles.push({ points, velocities, life: 0, ttl: 0.5 });
 }
 
-// Uusi funktio slipstream-säihkeiden animointiin
+// slipstream-säihkeiden update
 function updateSlipstreamSparkles(delta) {
     for (let i = slipstreamSparkles.length - 1; i >= 0; i--) {
         const sparkle = slipstreamSparkles[i];
@@ -2172,7 +2172,7 @@ function spawnShips(shipList) {
                 const bubbleMaterial = new THREE.MeshBasicMaterial({
                     color: 0xaaddff,
                     transparent: true,
-                    opacity: 0.1,
+                    opacity: 0.05,
                     blending: THREE.AdditiveBlending,
                     depthWrite: false,
                 });
@@ -3144,6 +3144,43 @@ export function applyDiff(diffArr = []) {
                 //console.log("🏴 Conquest complete, star color updated");
                 break;
             }
+            case 'HUB_NETWORK_UPDATED': {
+                if (!act.connections || act.connections.length === 0) break;
+
+                // Käytetään normaalia starlane-materiaalia, jotta clientin
+                // olemassa oleva logiikka tunnistaa reitin automaattisesti nopeaksi.
+                
+                act.connections.forEach(conn => {
+                    const fromMesh = starsById.get(conn.from);
+                    const toMesh = starsById.get(conn.to);
+
+                    if (!fromMesh || !toMesh) {
+                        console.warn('Could not find stars for Hub starlane:', conn);
+                        return; // Käsittelee forEach-loopin seuraavan alkion
+                    }
+
+                    // Luo viivageometria
+                    const geom = new THREE.BufferGeometry().setFromPoints([
+                        fromMesh.position,
+                        toMesh.position
+                    ]);
+
+                    // Käytetään olemassa olevaa STARLANE_MAT-vakiota
+                    const line = new THREE.Line(geom, STARLANE_MAT.clone());
+                    
+                    // Lisätään metadata, jotta tiedämme tämän olevan erikois-lane
+                    line.userData = {
+                        star1Id: conn.from,
+                        star2Id: conn.to,
+                        isHubLane: true
+                    };
+                    line.renderOrder = 2; // Piirretään tähtien alle
+
+                    scene.add(line);
+                    starConnections.push(line); // Lisää seurantaan
+                });
+                break;
+            }
 
         }
     });
@@ -3193,7 +3230,7 @@ export function startAnimateLoop() {
         
         // Pyöritä valintaindikaattoria
         if (selectionIndicatorMesh && selectionIndicatorMesh.visible) {
-            selectionIndicatorMesh.rotation.y += 0.5 * delta;
+            selectionIndicatorMesh.rotation.y += 0.01; // Kiinteä pyörimisnopeus pausella
         }
 
         updateAllStarVisuals();
@@ -3496,9 +3533,23 @@ function updateOrbitingShips(delta) {
             const FRIGATE_SPEED_SLOW = 12;
 
             const fromStar = starsById.get(shipData.departureStarId);
-            if (fromStar && fromStar.userData.starData.connections?.includes(shipData.targetStarId)) {
+            
+            // TARKISTUS 1: Onko reitti alkuperäinen starlane?
+            const isOriginalLane = fromStar && fromStar.userData.starData.connections?.includes(shipData.targetStarId);
+
+            // TARKISTUS 2: Onko reitti dynaaminen Galactic Hub -starlane?
+            // Käydään läpi kaikki piirretyt yhteydet ja katsotaan, löytyykö vastaavuus.
+            const isHubLane = starConnections.some(line =>
+                (line.userData.star1Id === shipData.departureStarId && line.userData.star2Id === shipData.targetStarId) ||
+                (line.userData.star1Id === shipData.targetStarId && line.userData.star2Id === shipData.departureStarId)
+            );
+
+            // JOS reitti on joko alkuperäinen TAI Hub-lane, käytä suurinta nopeutta.
+            if (isOriginalLane || isHubLane) {
                 speed = SHIP_SPEED_FAST;
-            } else if (shipData.type === 'Slipstream Frigate') {
+            } 
+            // MUUTEN käytä normaalia hitaampaa nopeutta tyypin mukaan.
+            else if (shipData.type === 'Slipstream Frigate') {
                 speed = FRIGATE_SPEED_SLOW;
             } else if (shipData.type === 'Fighter') {
                 speed = FIGHTER_SPEED_SLOW;
@@ -3510,7 +3561,7 @@ function updateOrbitingShips(delta) {
             if (virtualShip.userData.inSlipstream) {
                 // Asetetaan hitaiden alusten nopeudeksi SUORAAN frigatin nopeus.
                 // Tämä takaa, että ne liikkuvat täsmälleen samaa vauhtia.
-                speed = FRIGATE_SPEED_SLOW;
+                speed = 20;
             }
 
             // Vaihe 5: Laske tämän framen liike ja suorita se

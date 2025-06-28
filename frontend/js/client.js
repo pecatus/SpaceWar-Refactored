@@ -19,6 +19,21 @@ import {
     focusOnGroup
 } from './scene.js';
 
+
+/* ========================================================================== */
+/* AUDIO STATE & NODES                                                       */
+/* ========================================================================== */
+let audioContextStarted = false;
+let masterVolume;
+let ambientHum, ambientFilter, ambientPanner;
+let synthButtonClick;             // <-- LISÄÄ TÄMÄ
+let synthButtonHoverEffect;       // <-- LISÄÄ TÄMÄ
+let lastButtonClickTime = 0;      // <-- LISÄÄ TÄMÄ
+let lastButtonHoverTime = 0;      // <-- LISÄÄ TÄMÄ
+const BUTTON_CLICK_COOLDOWN = 0.05; // <-- LISÄÄ TÄMÄ
+const BUTTON_HOVER_COOLDOWN = 0.03; // <-- LISÄÄ TÄMÄ
+
+
 /* ========================================================================== */
 /*  CONSTANTS & CONFIGURATION                                                 */
 /* ========================================================================== */
@@ -108,6 +123,8 @@ const buildFighterButton = document.getElementById('buildFighterButton');
 const buildDestroyerButton = document.getElementById('buildDestroyerButton');
 const buildCruiserButton = document.getElementById('buildCruiserButton');
 const buildSlipstreamFrigateButton = document.getElementById('buildSlipstreamFrigateButton');
+const buildGalacticHubButton = document.getElementById('buildGalacticHubButton'); 
+
 
 // Progress displays
 const planetaryQueueInfo = document.getElementById('planetaryQueueInfo');
@@ -214,8 +231,14 @@ function initializeUI() {
 
 function setupEventListeners() {
     // Start game button
-    startGameButton.addEventListener('click', handleStartGame);
-    resumeGameButton.addEventListener('click', handleResumeGame);
+    startGameButton.addEventListener('click', () => {
+        
+        handleStartGame();
+    });
+    resumeGameButton.addEventListener('click', () => {
+        
+        handleResumeGame();
+    });
 
     // Varmista että socket katkaistaan kun sivu suljetaan
     window.addEventListener('beforeunload', () => {
@@ -236,18 +259,21 @@ function setupEventListeners() {
     numAiPlayersSelect.addEventListener('change', setupAIPlayerSettings);
     
     // Construction buttons
-    upgradeInfrastructureButton.addEventListener('click', () => handleUpgradeInfrastructure());
-    buildShipyardButton.addEventListener('click', () => handleBuildShipyard());
-    upgradeShipyardButton.addEventListener('click', () => handleUpgradeShipyard());
-    buildMineButton.addEventListener('click', () => handleBuildMine());
-    buildDefenseButton.addEventListener('click', () => handleBuildDefense());
-    buildFighterButton.addEventListener('click', (e) => handleBuildShip(e.target.dataset.type));
-    buildDestroyerButton.addEventListener('click', (e) => handleBuildShip(e.target.dataset.type));
-    buildCruiserButton.addEventListener('click', (e) => handleBuildShip(e.target.dataset.type));
-    buildSlipstreamFrigateButton.addEventListener('click', (e) => handleBuildShip(e.target.dataset.type));
+    upgradeInfrastructureButton.addEventListener('click', () => {playButtonClickSound(); handleUpgradeInfrastructure()});
+    buildShipyardButton.addEventListener('click', () => {playButtonClickSound();handleBuildShipyard()});
+    upgradeShipyardButton.addEventListener('click', () => {playButtonClickSound();handleUpgradeShipyard()});
+    buildMineButton.addEventListener('click', () => {playButtonClickSound();handleBuildMine()});
+    buildDefenseButton.addEventListener('click', () => {playButtonClickSound();handleBuildDefense()});
+    buildFighterButton.addEventListener('click', (e) => {playButtonClickSound();handleBuildShip(e.target.dataset.type)});
+    buildDestroyerButton.addEventListener('click', (e) => {playButtonClickSound();handleBuildShip(e.target.dataset.type)});
+    buildCruiserButton.addEventListener('click', (e) => {playButtonClickSound();handleBuildShip(e.target.dataset.type)});
+    buildSlipstreamFrigateButton.addEventListener('click', (e) => {playButtonClickSound();handleBuildShip(e.target.dataset.type)});
+    buildGalacticHubButton.addEventListener('click', () => {playButtonClickSound();handleBuildGalacticHub()}); // <-- LISÄÄ TÄMÄ
+
     
     // Star selection events from scene
     window.addEventListener('starSelected', (event) => {
+        playButtonClickSound();
         handleStarSelection(event.detail);
     });
     
@@ -436,16 +462,9 @@ document.addEventListener('keydown', (event) => {
     }
 });
 
-    
-    // Button hover sounds (simplified)
-    document.querySelectorAll('button').forEach(button => {
-        button.addEventListener('mouseenter', () => {
-            // Could add sound effects here
-        });
-    });
-
     document.querySelectorAll('#speedPanel button').forEach(btn => {
         btn.addEventListener('click', () => {
+            
             const val = btn.dataset.speed;
             
             // Poista active kaikilta
@@ -478,8 +497,96 @@ document.addEventListener('keydown', (event) => {
                 }
             }
         });
+        // Button hover sounds (simplified)
+        document.querySelectorAll('button').forEach(button => {
+            button.addEventListener('mouseenter', async () => {
+                await initAudio(); // Yritä alustaa äänet HETI kun hiiri menee napin päälle
+                playButtonHoverSound(); // Soita ääni
+            });
+        });
     });
 }
+
+/* ========================================================================== */
+/* AUDIO FUNCTIONS                                                           */
+/* ========================================================================== */
+// --- AUDIO FUNCTIONS ---
+function initializeAudioNodes() { 
+    if (!audioContextStarted) return; 
+    console.log("Initializing Tone.js audio nodes...");
+
+    masterVolume = new Tone.Volume(-10).toDestination(); 
+
+    synthButtonClick = new Tone.NoiseSynth({
+        noise: { type: 'white' },
+        volume: -15, 
+        envelope: { attack: 0.001, decay: 0.015, sustain: 0, release: 0.05 } 
+    }).connect(masterVolume);
+
+    synthButtonHoverEffect = new Tone.NoiseSynth({
+        noise: { type: 'pink' }, 
+        volume: -20, 
+        envelope: { attack: 0.001, decay: 0.005, sustain: 0, release: 0.03 }
+    }).connect(masterVolume);
+
+
+    ambientPanner = new Tone.Panner(0).connect(masterVolume);
+    ambientFilter = new Tone.AutoFilter({
+        frequency: "8m", 
+        type: "sine", depth: 0.7, baseFrequency: 60, octaves: 3,
+        filter: { type: "lowpass", rolloff: -12, Q: 1 }
+    }).connect(ambientPanner).start();
+
+    ambientHum = new Tone.FatOscillator({
+        frequency: 50, type: "sawtooth", detune: 0.6, spread: 15, volume: -10, 
+    }).connect(ambientFilter);
+    
+    console.log("Tone.js audio nodes initialized.");
+}
+
+async function initAudio() { 
+    if (audioContextStarted) return true;
+    try {
+        await Tone.start();
+        audioContextStarted = true;
+        console.log("AudioContext started by user interaction!");
+        initializeAudioNodes();
+        if (ambientHum && ambientHum.state !== "started") {
+            ambientHum.start();
+            console.log("AUDIO: Ambient hum started.");
+        }
+        return true;
+    } catch (e) {
+        console.error("Failed to start AudioContext:", e);
+        return false;
+    }
+}
+
+function playButtonClickSound() { 
+    if (!audioContextStarted || !synthButtonClick) return;
+    const now = Tone.now();
+    if (now - lastButtonClickTime < BUTTON_CLICK_COOLDOWN) return;
+    try {
+        synthButtonClick.triggerAttackRelease("64n", now); 
+        lastButtonClickTime = now;
+    } catch (e) {
+        console.error("Audio error playing button click sound:", e);
+    }
+}
+
+function playButtonHoverSound() { 
+    if (!audioContextStarted || !synthButtonHoverEffect) return;
+    const now = Tone.now();
+    if (now - lastButtonHoverTime < BUTTON_HOVER_COOLDOWN) return;
+    try {
+        synthButtonHoverEffect.triggerAttackRelease("128n", now); 
+        lastButtonHoverTime = now;
+    } catch (e) {
+        console.error("Audio error playing button hover sound:", e);
+    }
+}
+// --- END AUDIO FUNCTIONS ---
+
 
 function setupTooltips() {
     const tooltipElement = document.getElementById('custom-tooltip');
@@ -645,6 +752,8 @@ function resetClientState() {
 
 async function handleStartGame() {
     try {
+        await initAudio();
+        playButtonClickSound();
         // Varmista että peli ei ala pausella
         isPaused = false;
         window.isPaused = false;
@@ -756,6 +865,7 @@ function handleInitialState(snap) {
 }
 
 function handleResumeGame() {
+    playButtonClickSound();
     if (gameInProgress) {
         uiState = 'playing';
         updateUIState();
@@ -1003,22 +1113,52 @@ function updateButtonStates(starData) {
     const queuedInfra = planetaryQueue.filter(item => 
         item.type.startsWith('Infrastructure')).length;
     
-    // Infrastructure button
-    if (upgradeInfrastructureButton && upgradeInfrastructureButton.style.display !== 'none') {
+    // --- Infrastructure & Galactic Hub Logic (Lopullinen, korjattu versio) ---
+    const hasInfraInQueue = queuedInfra > 0;
+    const hasHubInQueue = planetaryQueue.some(item => item.type === 'Galactic Hub');
+
+    // Tapaus 1: Infrastruktuuria voi vielä päivittää (taso < 5)
+    if (starData.infrastructureLevel < 5) {
+        upgradeInfrastructureButton.style.display = 'block';
+        buildGalacticHubButton.style.display = 'none';
+
         const cost = getInfrastructureCost(starData.infrastructureLevel);
         const canAffordIt = canAfford(cost);
-        const hasInfraInQueue = queuedInfra > 0;
-        
         upgradeInfrastructureButton.disabled = !canAffordIt || hasInfraInQueue;
-        
-        if (hasInfraInQueue) {
-            upgradeInfrastructureButton.title = 'Infrastructure upgrade already in queue';
-        } else if (!canAffordIt) {
-            upgradeInfrastructureButton.title = `Insufficient resources (need ${cost.credits}C, ${cost.minerals}M)`;
-        } else {
-            upgradeInfrastructureButton.title = `Upgrade to Infrastructure Level ${starData.infrastructureLevel + 1}`;
+        // ... (title-tekstit kuten ennenkin)
+        upgradeInfrastructureButton.querySelector('span').textContent = 'Upgrade Infrastructure';
+    } 
+    // Tapaus 2: Infra on täynnä. Tarkistetaan Hubin tila.
+    else {
+        // A) Hub on jo valmis. Näytetään pysyvä, harmaa nappi.
+        if (starData.hasGalacticHub) {
+            upgradeInfrastructureButton.style.display = 'block';
+            buildGalacticHubButton.style.display = 'none';
+
+            upgradeInfrastructureButton.disabled = true;
+            upgradeInfrastructureButton.querySelector('span').textContent = 'GALACTIC HUB';
+            upgradeInfrastructureButton.title = 'Galactic Hub already built on this star.';
+        }
+        // B) Hubia ei ole valmiina. Näytetään rakennusnappi.
+        else {
+            upgradeInfrastructureButton.style.display = 'none';
+            buildGalacticHubButton.style.display = 'block';
+
+            // Jos Hub on jonossa, disabloidaan nappi (mutta pidetään se näkyvissä progress baria varten).
+            if (hasHubInQueue) {
+                buildGalacticHubButton.disabled = true;
+                buildGalacticHubButton.title = 'Galactic Hub is already in the construction queue.';
+            } 
+            // Jos Hubia ei ole jonossa, tarkistetaan resurssit.
+            else {
+                const cost = { credits: 1000, minerals: 1000 };
+                const canAffordIt = canAfford(cost);
+                buildGalacticHubButton.disabled = !canAffordIt;
+                buildGalacticHubButton.title = canAffordIt ? 'Build a Galactic Hub' : 'Insufficient resources';
+            }
         }
     }
+
     
     // Shipyard buttons
     if (buildShipyardButton && buildShipyardButton.style.display !== 'none') {
@@ -1384,6 +1524,8 @@ function updateButtonProgressBar(type, percent) {
         progressBarId = 'progress-Mine';
     } else if (type === 'Defense Upgrade') {
         progressBarId = 'progress-Defense';
+    } else if (type === 'Galactic Hub') {
+        progressBarId = 'progress-GalacticHub';
     }
     
     const progressBar = document.getElementById(progressBarId);
@@ -1413,6 +1555,19 @@ function handleUpgradeInfrastructure() {
     // Send command to backend
     const buildType = `Infrastructure Lvl ${selectedStar.infrastructureLevel + 1}`;
     sendConstructionCommand(selectedStar._id, buildType, cost);
+}
+
+function handleBuildGalacticHub() {
+    if (!selectedStar || isPaused) return;
+    
+    // Määritä kovat kustannukset
+    const cost = { credits: 1000, minerals: 1000, time: 180 };
+    if (!canAfford(cost)) {
+        alert("Insufficient resources for Galactic Hub!");
+        return;
+    }
+    
+    sendConstructionCommand(selectedStar._id, 'Galactic Hub', cost);
 }
 
 function handleBuildShipyard() {

@@ -80,6 +80,8 @@ class GameManager extends EventEmitter {
     this._diffBuffer = [];
     this._lastDiffSent = 0;
     this.DIFF_SEND_INTERVAL = 250;
+
+    this.galacticHubs = new Set(); // Sisältää kaikkien pelaajien Hubien starId:t
   }
   
 
@@ -335,6 +337,13 @@ class GameManager extends EventEmitter {
     });
     console.log('--- Correctly initialized resources for new game ---', JSON.stringify(this.state.resources, null, 2));
  
+    // Galactic Hubin alustus
+    this.galacticHubs.clear(); // Varmuuden vuoksi tyhjennys
+    this.state.stars.forEach(star => {
+        if (star.hasGalacticHub) {
+            this.galacticHubs.add(star._id.toString());
+        }
+    });
 
     // AI-instanssien luonti - Varmistetaan, että tämä koskee vain AI-pelaajia
     this.ai.clear();
@@ -645,6 +654,41 @@ async _checkConquestStart(star, ships, diff) {
     }
 }
 
+    /**
+     * Luo starlane-yhteydet uuden Hubin ja kaikkien aiempien Hubien välille.
+     * @param {Star} newHubStar - Tähti, johon uusi Hub juuri valmistui.
+     */
+    async _updateHubNetwork(newHubStar) {
+        const newConnections = [];
+        const newHubStarIdStr = newHubStar._id.toString();
+
+        // Käydään läpi GLOBAALI lista kaikista Hubeista
+        for (const existingHubIdStr of this.galacticHubs) {
+            if (existingHubIdStr === newHubStarIdStr) continue;
+
+            const existingHub = this._star(existingHubIdStr);
+            if (!existingHub) continue;
+
+            // Luo kaksisuuntainen yhteys
+            newHubStar.connections.push(existingHub._id);
+            existingHub.connections.push(newHubStar._id);
+
+            newConnections.push({ from: newHubStarIdStr, to: existingHubIdStr });
+            this._pendingSaves.stars.add(existingHub);
+        }
+
+        this._pendingSaves.stars.add(newHubStar);
+
+        // Lähetä clientille VAIN uudet yhteydet
+        if (newConnections.length > 0) {
+            const diff = [{
+                action: 'HUB_NETWORK_UPDATED',
+                connections: newConnections
+            }];
+            this.io.to(this.gameId.toString()).emit("game_diff", diff);
+        }
+    }
+
  async _advanceConstruction(diff) {
   /* PLANETARY ------------------------------------------------ */
   // Pidä kirjaa muutetuista tähdistä
@@ -675,6 +719,15 @@ async _checkConquestStart(star, ships, diff) {
         star.defenseHP = star.defenseLevel * COMBAT_CONSTANTS.DEFENSE_HP_PER_LEVEL;
         star.markModified('defenseHP');
       }
+      else if (job.type === 'Galactic Hub') {
+        star.hasGalacticHub = true;
+
+        // Lisää uusi Hub globaaliin listaan
+        this.galacticHubs.add(star._id.toString());
+
+        // Kutsu verkonpäivitysfunktiota (nyt ilman playerId:tä)
+        await this._updateHubNetwork(star);
+        }
 
       // 2. Poista jonosta ja tallenna
       star.planetaryQueue.shift();
@@ -698,6 +751,7 @@ async _checkConquestStart(star, ships, diff) {
               defenseLevel: star.defenseLevel,
               shipyardLevel: star.shipyardLevel,
               infrastructureLevel: star.infrastructureLevel,
+              hasGalacticHub: star.hasGalacticHub,
               planetaryQueue: star.planetaryQueue,
               shipQueue: star.shipQueue,
               planetaryQueueTotalTime: star.planetaryQueueTotalTime, // LISÄÄ TÄMÄ
@@ -808,6 +862,7 @@ async _checkConquestStart(star, ships, diff) {
     const SHIP_UPKEEP = { Fighter: 1, Destroyer: 2, Cruiser: 3, 'Slipstream Frigate': 4 };
     const PD_UPKEEP = 2;
     const SHIPYARD_UPKEEP = 3;
+    const UPKEEP_GALACTIC_HUB = 15;
 
 
     Object.entries(this.state.resources).forEach(([pid, wallet]) => {
@@ -826,6 +881,10 @@ async _checkConquestStart(star, ships, diff) {
                 currentIncome.credits += st.population;
                 currentIncome.minerals += st.mines;
                 upkeep += (st.defenseLevel * PD_UPKEEP) + (st.shipyardLevel * SHIPYARD_UPKEEP);
+                        // Jos Galactic Hubeja : 
+                if (st.hasGalacticHub) {
+                    upkeep += UPKEEP_GALACTIC_HUB;
+                }
             });
         
         // Kerätään alusten ylläpito erikseen (koska ne ovat eri taulukossa).
