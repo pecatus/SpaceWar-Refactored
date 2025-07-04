@@ -150,11 +150,11 @@ const socket = io(BACKEND_URL, {
 });
 
 socket.on("connect", () => {
-    console.log("✅ Socket connected", socket.id);
+//     console.log("✅ Socket connected", socket.id);
 });
 
 socket.on("disconnect", () => {
-    console.log("❌ Disconnected from server");
+//     console.log("❌ Disconnected from server");
     // Näytä UI että yhteys katkesi
     if (gameInProgress) {
         alert("Connection lost! The game has been paused. Refresh to reconnect.");
@@ -162,30 +162,30 @@ socket.on("disconnect", () => {
 });
 
 socket.on("reconnect", () => {
-    console.log("🔄 Reconnected to server");
+//     console.log("🔄 Reconnected to server");
     if (currentGameId) {
         socket.emit("join_game", { gameId: currentGameId });
     }
 });
 
 socket.on("connect_error", (error) => {
-    console.error("❌ Socket connection error:", error);
+//     console.error("❌ Socket connection error:", error);
 });
 
 // Receive initial game state
 socket.on('initial_state', (snap) => {
-    console.log("📥 Received initial_state:", snap);
+//     console.log("📥 Received initial_state:", snap);
     handleInitialState(snap);
 });
 
 // Receive game updates
 socket.on("game_diff", (diff) => {
-    //console.log("📦 Received diff:", diff);
+//     //console.log("📦 Received diff:", diff);
     
     // Debug SHIP_MOVING erikseen
     diff.forEach(action => {
         if (action.action === 'SHIP_MOVING') {
-            //console.log("🚢 SHIP_MOVING received:", action);
+//             //console.log("🚢 SHIP_MOVING received:", action);
         }
     });
     
@@ -195,9 +195,9 @@ socket.on("game_diff", (diff) => {
 
 socket.on("joined", (response) => {
     if (response.success) {
-        console.log("✅ Successfully joined game");
+//         console.log("✅ Successfully joined game");
     } else {
-        console.error("❌ Failed to join game:", response.error);
+//         console.error("❌ Failed to join game:", response.error);
         alert("Failed to join game: " + response.error);
         showStartScreen();
     }
@@ -208,13 +208,13 @@ socket.on("joined", (response) => {
 /* ========================================================================== */
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log("🚀 Client initializing...");
+//     console.log("🚀 Client initializing...");
     
     initializeUI();
     setupEventListeners();
     setupAIPlayerSettings();
     
-    console.log("✅ Client initialized");
+//     console.log("✅ Client initialized");
 });
 
 function initializeUI() {
@@ -245,7 +245,7 @@ function setupEventListeners() {
     // Varmista että socket katkaistaan kun sivu suljetaan
     window.addEventListener('beforeunload', () => {
     if (window.socket && window.socket.connected) {
-        console.log('Page closing - disconnecting socket');
+//         console.log('Page closing - disconnecting socket');
         window.socket.disconnect();
     }
     });
@@ -337,60 +337,60 @@ document.addEventListener('keydown', (event) => {
             const debug = window.getSceneDebugInfo();
             const shipDetails = debug.shipsByStarDetails();
             
-            console.log('=== SHIP TRACKING DEBUG ===');
-            console.log(`Total ships: ${debug.totalShips}`);
-            console.log(`Tracked ships: ${debug.trackedShips}`);
-            console.log(`Untracked ships: ${debug.untrackedShips}`);
-            console.log(`Tracking accuracy: ${debug.trackingAccuracy}%`);
-            console.log('');
-            console.log(`Stars with ships: ${debug.starsWithShips}`);
-            console.log(`Combat effects active: ${debug.combatEffects}`);
-            console.log(`Explosions active: ${debug.explosions}`);
-            console.log(`Stars to check: ${debug.starsToCheck}`);
-            console.log('');
+//             console.log('=== SHIP TRACKING DEBUG ===');
+//             console.log(`Total ships: ${debug.totalShips}`);
+//             console.log(`Tracked ships: ${debug.trackedShips}`);
+//             console.log(`Untracked ships: ${debug.untrackedShips}`);
+//             console.log(`Tracking accuracy: ${debug.trackingAccuracy}%`);
+//             console.log('');
+//             console.log(`Stars with ships: ${debug.starsWithShips}`);
+//             console.log(`Combat effects active: ${debug.combatEffects}`);
+//             console.log(`Explosions active: ${debug.explosions}`);
+//             console.log(`Stars to check: ${debug.starsToCheck}`);
+//             console.log('');
             
             // Performance issues
             if (debug.performanceIssues) {
                 const issues = debug.performanceIssues;
                 if (issues.tooManyCombatEffects || issues.tooManyStarsToCheck || issues.poorTrackingAccuracy) {
-                    console.log('⚠️  PERFORMANCE ISSUES DETECTED:');
+//                     console.log('⚠️  PERFORMANCE ISSUES DETECTED:');
                     if (issues.tooManyCombatEffects) {
-                        console.log(`   - Too many combat effects (${debug.combatEffects} > 10)`);
+//                         console.log(`   - Too many combat effects (${debug.combatEffects} > 10)`);
                     }
                     if (issues.tooManyStarsToCheck) {
-                        console.log(`   - Too many stars being checked (${debug.starsToCheck} > 30)`);
+//                         console.log(`   - Too many stars being checked (${debug.starsToCheck} > 30)`);
                     }
                     if (issues.poorTrackingAccuracy) {
-                        console.log(`   - Poor tracking accuracy (${debug.trackingAccuracy}% < 95%)`);
+//                         console.log(`   - Poor tracking accuracy (${debug.trackingAccuracy}% < 95%)`);
                     }
-                    console.log('');
+//                     console.log('');
                 }
             }
             
-            //console.log('Ships by star (top 10):');
+//             //console.log('Ships by star (top 10):');
             shipDetails.details.slice(0, 10).forEach(star => {
-                console.log(`  ${star.starName}: ${star.shipCount} ships`);
+//                 console.log(`  ${star.starName}: ${star.shipCount} ships`);
             });
             
             if (shipDetails.details.length > 10) {
-                console.log(`  ... and ${shipDetails.details.length - 10} more stars`);
+//                 console.log(`  ... and ${shipDetails.details.length - 10} more stars`);
             }
             
-            console.log('========================');
+//             console.log('========================');
             
             // Jos on ongelmia, ehdota korjausta
             if (debug.untrackedShips > 0 || debug.starsToCheck > 30) {
-                console.log('💡 TIP: Press F5 to run cleanup');
+//                 console.log('💡 TIP: Press F5 to run cleanup');
             }
         } else {
-            console.warn('Scene debug info not available yet');
+//             console.warn('Scene debug info not available yet');
         }
     }
 
     // F5 näppäin manuaaliseen siivoukseen:
     else if (event.key === 'F5') {
         event.preventDefault();
-        console.log('🧹 Running manual cleanup...');
+//         console.log('🧹 Running manual cleanup...');
         
         if (window.performMemoryCleanup) {
             window.performMemoryCleanup();
@@ -400,7 +400,7 @@ document.addEventListener('keydown', (event) => {
             window.cleanupCombatChecks();
         }
         
-        console.log('✅ Cleanup complete!');
+//         console.log('✅ Cleanup complete!');
     }
     
     // --- F3 PERFORMANCE MONITOR ---
@@ -410,7 +410,7 @@ document.addEventListener('keydown', (event) => {
         if (monitor) {
             monitor.style.display = monitor.style.display === 'none' ? 'block' : 'none';
         } else {
-            console.warn('Performance monitor element not found - add it to your HTML');
+//             console.warn('Performance monitor element not found - add it to your HTML');
         }
     }
 
@@ -515,7 +515,7 @@ document.addEventListener('keydown', (event) => {
 // --- AUDIO FUNCTIONS ---
 function initializeAudioNodes() { 
     if (!audioContextStarted) return; 
-    console.log("Initializing Tone.js audio nodes...");
+//     console.log("Initializing Tone.js audio nodes...");
 
     masterVolume = new Tone.Volume(-10).toDestination(); 
 
@@ -543,7 +543,7 @@ function initializeAudioNodes() {
         frequency: 50, type: "sawtooth", detune: 0.6, spread: 15, volume: -10, 
     }).connect(ambientFilter);
     
-    console.log("Tone.js audio nodes initialized.");
+//     console.log("Tone.js audio nodes initialized.");
 }
 
 async function initAudio() { 
@@ -551,15 +551,15 @@ async function initAudio() {
     try {
         await Tone.start();
         audioContextStarted = true;
-        console.log("AudioContext started by user interaction!");
+//         console.log("AudioContext started by user interaction!");
         initializeAudioNodes();
         if (ambientHum && ambientHum.state !== "started") {
             ambientHum.start();
-            console.log("AUDIO: Ambient hum started.");
+//             console.log("AUDIO: Ambient hum started.");
         }
         return true;
     } catch (e) {
-        console.error("Failed to start AudioContext:", e);
+//         console.error("Failed to start AudioContext:", e);
         return false;
     }
 }
@@ -572,7 +572,7 @@ function playButtonClickSound() {
         synthButtonClick.triggerAttackRelease("64n", now); 
         lastButtonClickTime = now;
     } catch (e) {
-        console.error("Audio error playing button click sound:", e);
+//         console.error("Audio error playing button click sound:", e);
     }
 }
 
@@ -584,7 +584,7 @@ function playButtonHoverSound() {
         synthButtonHoverEffect.triggerAttackRelease("128n", now); 
         lastButtonHoverTime = now;
     } catch (e) {
-        console.error("Audio error playing button hover sound:", e);
+//         console.error("Audio error playing button hover sound:", e);
     }
 }
 // --- END AUDIO FUNCTIONS ---
@@ -716,7 +716,7 @@ function resetAllProgressBars() {
 }
 
 function resetClientState() {
-    console.log('[RESET] Nollataan clientin pelitila...');
+//     console.log('[RESET] Nollataan clientin pelitila...');
 
     isPaused = false;
     window.isPaused = false;
@@ -749,7 +749,7 @@ function resetClientState() {
     const selectedUnitsPanel = document.getElementById('selectedUnitsPanel');
     if (selectedUnitsPanel) selectedUnitsPanel.style.display = 'none';
 
-    console.log('[RESET] Clientin tila nollattu.');
+//     console.log('[RESET] Clientin tila nollattu.');
 }
 
 async function handleStartGame() {
@@ -807,7 +807,7 @@ async function handleStartGame() {
         socket.emit("join_game", { gameId: result.initialState.gameId });
         
     } catch (error) {
-        console.error("❌ Failed to start game:", error);
+//         console.error("❌ Failed to start game:", error);
         alert("Failed to start game: " + error.message);
         // Varmistetaan, että nappeja voi taas käyttää, jos käynnistys epäonnistui
         startGameButton.disabled = false;
@@ -833,19 +833,19 @@ async function createNewGame(payload) {
 }
 
 function handleInitialState(snap) {
-    console.log("🎯 Handling initial state:", snap);
+//     console.log("🎯 Handling initial state:", snap);
     currentGameId = snap.gameId;
     gameState = snap;
     gameInProgress = true;
     
     // Set the player ID
     myPlayerId = snap.humanPlayerId;
-    console.log("👤 Player ID set to:", myPlayerId);
+//     console.log("👤 Player ID set to:", myPlayerId);
     
     // Update resources if provided
     if (snap.resources && myPlayerId) {
         playerResources = snap.resources[myPlayerId] || playerResources;
-        console.log("💰 Player resources:", playerResources);
+//         console.log("💰 Player resources:", playerResources);
     }
     
     // Store player data for color mapping
@@ -863,7 +863,7 @@ function handleInitialState(snap) {
     // Switch to game UI
     showGameUI();
     
-    console.log("✅ Game state loaded and UI updated");
+//     console.log("✅ Game state loaded and UI updated");
 }
 
 function handleResumeGame() {
@@ -981,7 +981,7 @@ function updateUIState() {
 /* ========================================================================== */
 
 function handleStarSelection(starData) {
-    //console.log("🌟 Star selected:", starData);
+//     //console.log("🌟 Star selected:", starData);
     
     if (!starData) {
         selectedStar = null;
@@ -1070,7 +1070,7 @@ function showPlayerButtons(starData) {
     upgradeShipyardButton.style.display = hasShipyard ? 'block' : 'none';
     
     // Infrastructure aina näkyvissä kunnes max
-    upgradeInfrastructureButton.style.display = starData.infrastructureLevel < 5 ? 'block' : 'none';
+    // upgradeInfrastructureButton.style.display = starData.infrastructureLevel < 5 ? 'block' : 'none';
     
     // Mine ja Defense aina näkyvissä
     buildMineButton.style.display = 'block';
@@ -1095,7 +1095,7 @@ function showPlayerButtons(starData) {
 }
 
 function hidePlayerButtons() {
-    [upgradeInfrastructureButton, buildShipyardButton, upgradeShipyardButton,
+    [upgradeInfrastructureButton, buildGalacticHubButton, buildShipyardButton, upgradeShipyardButton,
      buildMineButton, buildDefenseButton, buildFighterButton, buildDestroyerButton,
      buildCruiserButton, buildSlipstreamFrigateButton].forEach(button => {
         if (button) button.style.display = 'none';
@@ -1103,6 +1103,11 @@ function hidePlayerButtons() {
 }
 
 function updateButtonStates(starData) {
+    if (!isPlayerOwned(starData)) {
+        // Piilota kaikki rakentamisnapit vihollisplaneetoilla
+        hidePlayerButtons();
+        return;
+    }
     const currentInfraLimits = INFRA_LIMITS[starData.infrastructureLevel] || INFRA_LIMITS[1];
     
     // Laske jonossa olevat
@@ -1127,7 +1132,7 @@ function updateButtonStates(starData) {
         const canAffordIt = canAfford(cost);
         const nextLvl = starData.infrastructureLevel + 1;
 
-        upgradeInfrastructureButton.disabled = !canAffordIt || hasInfraInQueue;
+        upgradeInfrastructureButton.disabled = !isPlayerOwned(starData) || !canAffordIt || hasInfraInQueue;
         
         // --- tooltip-logiikka ---
         if (hasInfraInQueue) {
@@ -1663,7 +1668,7 @@ function handleBuildShip(shipType) {
 }
 
 function sendConstructionCommand(starId, buildingType, cost) {
-    //console.log(`🔨 Sending construction command: ${buildingType} at star ${starId}`);
+//     //console.log(`🔨 Sending construction command: ${buildingType} at star ${starId}`);
     
     // Deduct resources locally for immediate feedback
     playerResources.credits -= cost.credits;
@@ -1702,12 +1707,12 @@ function sendConstructionCommand(starId, buildingType, cost) {
 
         // 3. Kutsutaan menun päivitystä, joka lukee muokatun selectedStar-olion
         showPlanetMenu(selectedStar);
-        //console.log('[UI-UPDATE] Päivitetty planeettajono optimistisesti.');
+//         //console.log('[UI-UPDATE] Päivitetty planeettajono optimistisesti.');
     }
 }
 
 function sendShipConstructionCommand(starId, shipType, cost) {
-    //console.log(`🚀 Sending ship construction command: ${shipType} at star ${starId}`);
+//     //console.log(`🚀 Sending ship construction command: ${shipType} at star ${starId}`);
     
     // Deduct resources locally for immediate feedback
     playerResources.credits -= cost.credits;
@@ -1742,7 +1747,7 @@ function sendShipConstructionCommand(starId, shipType, cost) {
         });
 
         showPlanetMenu(selectedStar);
-        //console.log('[UI-UPDATE] Päivitetty alusjono optimistisesti.');
+//         //console.log('[UI-UPDATE] Päivitetty alusjono optimistisesti.');
     }
 }
 
@@ -1862,7 +1867,7 @@ function updateUIFromDiff(diff) {
                 // Synkronoi serverin nopeus
                 if (action.speed !== window.SERVER_SPEED) {
                     window.SERVER_SPEED = action.speed;
-                    console.log(`[SYNC] Server speed: ${action.speed}x`);
+//                     console.log(`[SYNC] Server speed: ${action.speed}x`);
                 }
                 break;
             case 'CONSTRUCTION_PROGRESS':
@@ -1917,7 +1922,7 @@ function updateUIFromDiff(diff) {
                         state: 'orbiting'
                     };
                     gameState.ships.push(newShipData);
-                    //console.log(`[CLIENT-STATE] Lisätty uusi alus ${action.shipId} paikalliseen gameStateen. Aluksia yhteensä: ${gameState.ships.length}`);
+//                     //console.log(`[CLIENT-STATE] Lisätty uusi alus ${action.shipId} paikalliseen gameStateen. Aluksia yhteensä: ${gameState.ships.length}`);
                 }
 
                 // Tämä alla oleva logiikka päivittää planeetan rakennusjonon,
@@ -1958,7 +1963,7 @@ function updateUIFromDiff(diff) {
             }
 
             case 'DEFENSE_DAMAGED':
-                //console.log(`⚔️ Defense damaged at star ${action.starId}, new level: ${action.newLevel}`);
+//                 //console.log(`⚔️ Defense damaged at star ${action.starId}, new level: ${action.newLevel}`);
                 // Päivitä UI jos valittu tähti
                 if (selectedStar && selectedStar._id === action.starId) {
                     selectedStar.defenseLevel = action.newLevel;
@@ -1967,7 +1972,7 @@ function updateUIFromDiff(diff) {
             break;
 
             case 'SHIP_DESTROYED':
-                //console.log(`💥 Ship destroyed: ${action.shipId}`);
+//                 //console.log(`💥 Ship destroyed: ${action.shipId}`);
                 // Scene.js hoitaa visuaalisen päivityksen ja selectedShips-käsittelyn
                 
                 if (gameState && gameState.ships) {
@@ -1977,7 +1982,7 @@ function updateUIFromDiff(diff) {
                     );
                     const finalCount = gameState.ships.length;
                     if (initialCount > finalCount) {
-                        //console.log(`[CLIENT-STATE] Poistettu alus ${action.shipId}. Aluksia jäljellä: ${finalCount}`);
+//                         //console.log(`[CLIENT-STATE] Poistettu alus ${action.shipId}. Aluksia jäljellä: ${finalCount}`);
                     }
                 }
                 updateGroupsPanel(); // Päivitä ryhmäpaneeli, koska aluksia on voinut tuhoutua
@@ -1992,7 +1997,7 @@ function updateUIFromDiff(diff) {
                     if (starToUpdate) {
                         // Päivitä kentät (tässä tapauksessa populaatio)
                         Object.assign(starToUpdate, action.updatedFields);
-                        //console.log(`[CLIENT-STATE] Päivitetty tähden ${action.starId} populaatio arvoon ${action.updatedFields.population}`);
+//                         //console.log(`[CLIENT-STATE] Päivitetty tähden ${action.starId} populaatio arvoon ${action.updatedFields.population}`);
 
                         // JOS PÄIVITETTY TÄHTI ON VALITTUNA, PÄIVITÄ MYÖS PLANET MENU
                         if (selectedStar && selectedStar._id.toString() === action.starId.toString()) {
@@ -2006,12 +2011,12 @@ function updateUIFromDiff(diff) {
                 break;
                             
             case 'RESOURCE_UPDATE':
-                //console.log('📊 RESOURCE_UPDATE received:', action);
+//                 //console.log('📊 RESOURCE_UPDATE received:', action);
                 if (action.playerId === myPlayerId) {
                     const oldCredits = playerResources.credits;
                     const oldMinerals = playerResources.minerals;
                     playerResources = action.resources;
-                    console.log(`💰 Resources updated: Credits ${oldCredits} -> ${playerResources.credits}, Minerals ${oldMinerals} -> ${playerResources.minerals}`);
+//                     console.log(`💰 Resources updated: Credits ${oldCredits} -> ${playerResources.credits}, Minerals ${oldMinerals} -> ${playerResources.minerals}`);
                     updateResourceDisplay();
                 }
                 break;
@@ -2023,7 +2028,7 @@ function updateUIFromDiff(diff) {
                 break;
 
             case 'CONQUEST_STARTED':
-                //console.log("⚔️ Conquest started at star", action.starId);
+//                 //console.log("⚔️ Conquest started at star", action.starId);
                 // Scene.js hoitaa visuaalisen päivityksen
                 break;
                 
@@ -2037,7 +2042,7 @@ function updateUIFromDiff(diff) {
                 break;
                 
             case 'CONQUEST_COMPLETE':
-                //console.log("🏴 Conquest complete at star", action.starId);
+//                 //console.log("🏴 Conquest complete at star", action.starId);
                 if (selectedStar && selectedStar._id === action.starId) {
                     Object.assign(selectedStar, action.starData);
                     showPlanetMenu(selectedStar);
@@ -2045,7 +2050,7 @@ function updateUIFromDiff(diff) {
                 break;
                 
             case 'CONQUEST_HALTED':
-                //console.log("🛑 Conquest halted at star", action.starId);
+//                 //console.log("🛑 Conquest halted at star", action.starId);
                 if (selectedStar && selectedStar._id === action.starId) {
                     selectedStar.conquestProgress = 0;
                     selectedStar.isBeingConqueredBy = null;
@@ -2110,7 +2115,7 @@ function syncShipButtons() {
 // Start the resource display update loop
 setInterval(updateResourceDisplay, 1000);
 
-console.log("📁 Client.js loaded successfully");
+// console.log("📁 Client.js loaded successfully");
 
 export {
     playerResources,

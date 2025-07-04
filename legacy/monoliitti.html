@@ -109,7 +109,7 @@
         wallet.minerals -= cost.minerals;
         res.credits     -= cost.credits;
         res.minerals    -= cost.minerals;
-        // console.log(
+//         // console.log(
         //    `[AI-${aiId}-pay] from ${name}  -${cost.credits}/${cost.minerals}` +
         //    ` → ${wallet.credits.toFixed(1)}/${wallet.minerals.toFixed(1)}`
         //);
@@ -490,7 +490,7 @@
                 const weight = earlyWeightFor(type);            // early-painokerroin
                 const score  = base * weight * mult;            // lopullinen
 
-                //console.log(
+//                 //console.log(
                 //`%c[AI-${star.owner}-score] ${type} @ ${star.name}` +
                 //`  base=${base.toFixed(2)}  w=${weight}` +
                 //`  mult=${mult}  →  ${score.toFixed(2)}`,
@@ -513,7 +513,7 @@
                     window.pushToPlanetaryQueue(target, {
                         type:'Mine', timeLeft:10, totalTime:10, id:`ai_mine_${uuid()}`
                     });
-                    // console.log(`AI ${this.aiId} EARLY: Mine → ${target.name}`);
+//                     // console.log(`AI ${this.aiId} EARLY: Mine → ${target.name}`);
                     return true;      // rakennus tehty, poistutaan
                 }
                 return false;         // ei vielä rahaa → odota
@@ -613,7 +613,7 @@
             
                 // 2) jos ei mitään vaihtoehtoja
                 if (allOptions.length === 0) {
-                    // console.log(`[AI ${this.aiId}] No build options available`);
+//                     // console.log(`[AI ${this.aiId}] No build options available`);
                     return false;
                 }
 
@@ -645,7 +645,7 @@
                 // 4) päätös: rakennetaanko vai säästetäänkö
                 if (bestAffordable) {
                     if (bestSaveTarget && bestSaveTarget.score > bestAffordable.option.score) {
-                        // console.log(`[AI ${this.aiId}] Saving for ${bestSaveTarget.type} (score ${bestSaveTarget.score.toFixed(2)})`);
+//                         // console.log(`[AI ${this.aiId}] Saving for ${bestSaveTarget.type} (score ${bestSaveTarget.score.toFixed(2)})`);
                         return false;           // ei rakenneta tällä vuorolla
                     }
 
@@ -671,17 +671,17 @@
                                                 : parseInt(option.type.match(/\d+/)[0]);
 
                     window.pushToPlanetaryQueue(option.star, queueItem);
-                    // console.log(`AI ${this.aiId} Turn ${this.turn}: Built ${option.type} at ${option.star.name}`);
+//                     // console.log(`AI ${this.aiId} Turn ${this.turn}: Built ${option.type} at ${option.star.name}`);
                     reorderQueue(option.star);
                     return true;
                 }
 
                 if (bestSaveTarget) {
-                    // console.log(`[AI ${this.aiId}] Actively saving for ${bestSaveTarget.type} (score ${bestSaveTarget.score.toFixed(2)})`);
+//                     // console.log(`[AI ${this.aiId}] Actively saving for ${bestSaveTarget.type} (score ${bestSaveTarget.score.toFixed(2)})`);
                     return false;
                 }
 
-                // console.log(`[AI ${this.aiId}] Could not build anything (no affordable options and nothing worth saving for)`);
+//                 // console.log(`[AI ${this.aiId}] Could not build anything (no affordable options and nothing worth saving for)`);
                 return false;
         }
 
@@ -695,7 +695,7 @@
         const walletName = 'war';
 
         if (totalMines < needMines) {
-            // console.log(`[AI ${this.aiId}] skip ship-build: mines ${totalMines}/${needMines}`);
+//             // console.log(`[AI ${this.aiId}] skip ship-build: mines ${totalMines}/${needMines}`);
             return;
         }
         if (warWallet.credits < 25 || warWallet.minerals < 12) return;
@@ -719,13 +719,13 @@
                 const topWanted   = prio[0];
                 const neededLevel = SHIP_COST[topWanted][3];   // min shipyard lvl
                 if (star.shipyardLevel < neededLevel) {
-                    // console.log(`[AI ${this.aiId}] ${star.name}: yard lvl ${star.shipyardLevel} < `
+//                     // console.log(`[AI ${this.aiId}] ${star.name}: yard lvl ${star.shipyardLevel} < `
                     //            + `${neededLevel}, skip (top prio ${topWanted})`);
                     continue;                          // seuraava tähti
                 }
             }
 
-            // console.log(
+//             // console.log(
             //`%c[AI-${this.aiId}-ship-prio] ${star.name}  ` +
             // `F=${fleet.fighters} D=${fleet.destroyers} C=${fleet.cruisers}  ` +
             //`→ prio ${prio.join(' > ')}`,
@@ -744,7 +744,7 @@
                     warWallet.credits  >= WAIT_THRESHOLD * cost.credits ||
                     warWallet.minerals >= WAIT_THRESHOLD * cost.minerals;
                 if (closeEnough) {
-                // console.log(`[AI ${this.aiId}] saving up for`, type);
+//                 // console.log(`[AI ${this.aiId}] saving up for`, type);
                 break; 
                 }
             }
@@ -756,12 +756,12 @@
             window.pushToShipQueue(star, {
                 type, timeLeft: t, totalTime: t, id: `ai_ship_${uuid()}`
             });
-            // console.log(`AI ${this.aiId} Turn ${this.turn}: Queued ${type} at ${star.name}`);
+//             // console.log(`AI ${this.aiId} Turn ${this.turn}: Queued ${type} at ${star.name}`);
             break;
             }
         }
 
-        // console.log(`[AI-${this.aiId}-dbg] ships=${totalShips} mines=${totalMines}/${needMines} mustMine=${mustBuildMine}`);
+//         // console.log(`[AI-${this.aiId}-dbg] ships=${totalShips} mines=${totalMines}/${needMines} mustMine=${mustBuildMine}`);
         }
 
 
@@ -932,7 +932,7 @@
 
             /* jos kaikki Fighterit kuolisivat ennen kuin ampuvat, palaa myöhemmin */
             if (fightersReady > 0 && firstStrike >= ready.length) {
-                // console.log(`[AI ${this.aiId}] Skip attack: ${target.name} PD first-strike ${firstStrike} > fleet ${ready.length}`);
+//                 // console.log(`[AI ${this.aiId}] Skip attack: ${target.name} PD first-strike ${firstStrike} > fleet ${ready.length}`);
                 return;
             }
 
@@ -974,7 +974,7 @@
             }
 
             if(target.owner==='neutral'){
-                // console.warn(`[AI ${this.aiId}] Emergency‑claiming neutral star`,target.name);
+//                 // console.warn(`[AI ${this.aiId}] Emergency‑claiming neutral star`,target.name);
                 target.owner          = this.aiId;
                 target.population     = 1;
                 target.mines          = 0;
@@ -1030,7 +1030,7 @@
             };
 
             // now your banks reflect starting cash + all "real" gains
-            // console.log(
+//             // console.log(
             // `[AI-${this.aiId}-wallets] ` +
             // `eco ${this.ecoBank.credits}/${this.ecoBank.minerals}  ` +
             // `tech ${this.techBank.credits}/${this.techBank.minerals}  ` +
@@ -1052,7 +1052,7 @@
             
             // Debug: näytä kehitystilanne
             const developed = myStars.filter(s => s.shipyardLevel > 0 || s.infrastructureLevel > 1).length;
-            // console.log(`AI ${this.aiId} developed stars: ${developed}/${myStars.length}`);
+//             // console.log(`AI ${this.aiId} developed stars: ${developed}/${myStars.length}`);
             }
         }
 
@@ -1076,7 +1076,7 @@
             instance.techBank = {...initial.tech};
             instance.warBank  = {...initial.war};
 
-            // console.log(
+//             // console.log(
             //    `[AI-${aiId}-wallets startup] ` +
             //    `eco ${instance.ecoBank.credits}/${instance.ecoBank.minerals}  ` +
             //    `tech ${instance.techBank.credits}/${instance.techBank.minerals}  ` +
@@ -2002,7 +2002,7 @@
             ring.userData.baseR = r;
             scene.add(ring);
 
-            console.log('▶ Valloitusrengas luodaan tähdelle', star.name);   // debug-rivi
+//             console.log('▶ Valloitusrengas luodaan tähdelle', star.name);   // debug-rivi
             return ring;
         }
 
@@ -2098,7 +2098,7 @@
         // --- AUDIO FUNCTIONS ---
         function initializeAudioNodes() { 
             if (!audioContextStarted) return; 
-            console.log("Initializing Tone.js audio nodes...");
+//             console.log("Initializing Tone.js audio nodes...");
 
             masterVolume = new Tone.Volume(-10).toDestination(); 
 
@@ -2135,7 +2135,7 @@
             shipyardSpriteMaterial = new THREE.SpriteMaterial({ map: shipyardIndicatorTexture, sizeAttenuation: true, transparent: true, opacity: 0.9});
 
 
-            console.log("Tone.js audio nodes initialized.");
+//             console.log("Tone.js audio nodes initialized.");
         }
 
         async function initAudio() { 
@@ -2143,15 +2143,15 @@
             try {
                 await Tone.start();
                 audioContextStarted = true;
-                console.log("AudioContext started by user interaction!");
+//                 console.log("AudioContext started by user interaction!");
                 initializeAudioNodes();
                 if (ambientHum && ambientHum.state !== "started") {
                     ambientHum.start();
-                    console.log("AUDIO: Ambient hum started.");
+//                     console.log("AUDIO: Ambient hum started.");
                 }
                 return true;
             } catch (e) {
-                console.error("Failed to start AudioContext:", e);
+//                 console.error("Failed to start AudioContext:", e);
                 return false;
             }
         }
@@ -2164,7 +2164,7 @@
                 synthButtonClick.triggerAttackRelease("64n", now); 
                 lastButtonClickTime = now;
             } catch (e) {
-                console.error("Audio error playing button click sound:", e);
+//                 console.error("Audio error playing button click sound:", e);
             }
         }
 
@@ -2176,7 +2176,7 @@
                 synthButtonHoverEffect.triggerAttackRelease("128n", now); 
                 lastButtonHoverTime = now;
             } catch (e) {
-                console.error("Audio error playing button hover sound:", e);
+//                 console.error("Audio error playing button hover sound:", e);
             }
         }
         // --- END AUDIO FUNCTIONS ---
@@ -2203,7 +2203,7 @@
         numAiPlayersSelect.addEventListener('change', setupAIPlayerSettings);
 
         function init() { 
-            console.log("init: Initializing scene...");
+//             console.log("init: Initializing scene...");
             scene = new THREE.Scene();
             createBackgroundStarfield(); 
             createNebulaSprites(); 
@@ -2229,7 +2229,7 @@
             controls = new OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true; controls.dampingFactor = 0.05;
             controls.screenSpacePanning = true; controls.maxDistance = 2000; controls.minDistance = 10;
-            console.log("init: Controls initialized.");
+//             console.log("init: Controls initialized.");
 
             window.addEventListener('resize', onWindowResize, false);
             
@@ -2342,7 +2342,7 @@
             updateUIForGameState();
             initializeSelectionIndicator();
             animate();
-            console.log("init: Initialization complete.");
+//             console.log("init: Initialization complete.");
         }
 
         /* =========  BOKEH-FOKUKSEN PÄIVITYS  ========== */
@@ -2360,7 +2360,7 @@
         }
 
         async function startNewGame() { 
-            console.log("startNewGame: Called.");
+//             console.log("startNewGame: Called.");
             if (!audioContextStarted) {
                 await initAudio(); 
             }
@@ -2395,7 +2395,7 @@
             }
             
             try {
-                console.log("startNewGame: Clearing previous game state...");
+//                 console.log("startNewGame: Clearing previous game state...");
                 allShips.forEach(ship => { if(ship.mesh) scene.remove(ship.mesh); });
                 allShips = [];
                 starConnections.forEach(conn => scene.remove(conn));
@@ -2420,22 +2420,22 @@
                     }
                 });
                 stars = [];
-                console.log("startNewGame: Cleared old game objects.");
+//                 console.log("startNewGame: Cleared old game objects.");
             } catch (e) {
-                console.error("startNewGame: Error during cleanup:", e);
+//                 console.error("startNewGame: Error during cleanup:", e);
             }
             
 
             
             try {
-                console.log("startNewGame: Calling createWorld...");
+//                 console.log("startNewGame: Calling createWorld...");
                 createWorld(); 
-                console.log("startNewGame: createWorld completed.");
-                console.log("startNewGame: Calling createStarConnections...");
+//                 console.log("startNewGame: createWorld completed.");
+//                 console.log("startNewGame: Calling createStarConnections...");
                 createStarConnections();
-                console.log("startNewGame: createStarConnections completed.");
+//                 console.log("startNewGame: createStarConnections completed.");
             } catch (e) {
-                console.error("startNewGame: Error during world creation:", e);
+//                 console.error("startNewGame: Error during world creation:", e);
             }
 
             playerResources = { credits: 1000, minerals: 500 };
@@ -2450,11 +2450,11 @@
             updateResourceDisplay();
 
             updateUIForGameState();
-            console.log("startNewGame: Finished. UI should be updated.");
+//             console.log("startNewGame: Finished. UI should be updated.");
         }
 
         function resumeGame() {
-            console.log("resumeGame: Called.");
+//             console.log("resumeGame: Called.");
             if (gameInProgress) {
                 gameState = 'playing';
                 updateUIForGameState();
@@ -2463,7 +2463,7 @@
 
 
         function returnToStartScreen() { 
-            console.log("returnToStartScreen: Called.");
+//             console.log("returnToStartScreen: Called.");
             if (gameInProgress) {
                 gameState = 'gamePaused';
             } else {
@@ -2479,7 +2479,7 @@
 
         function updateUIForGameState() { 
             if (!startScreenDiv || !uiContainerDiv || !controls || !selectedUnitsPanel || !startGameButton || !resumeGameButton) {
-                console.error("updateUIForGameState: UI elements or controls not initialized! Cannot update UI.");
+//                 console.error("updateUIForGameState: UI elements or controls not initialized! Cannot update UI.");
                 return;
             }
 
@@ -2503,7 +2503,7 @@
                 updateSelectedUnitsDisplay(); // Update display based on current selection
                 controls.enabled = true; 
             }
-            console.log(`updateUIForGameState: gameState=${gameState}, gameInProgress=${gameInProgress}`);
+//             console.log(`updateUIForGameState: gameState=${gameState}, gameInProgress=${gameInProgress}`);
         }
         
         //kartan luonti pyöreäksi dartboardiksi 
@@ -2791,7 +2791,7 @@
         }
 
         function createWorld() { 
-            console.log("createWorld: Called.");
+//             console.log("createWorld: Called.");
             stars.forEach(starData => {
                 if (starData.mesh) scene.remove(starData.mesh);
                 if (starData.glowSprite) scene.remove(starData.glowSprite); 
@@ -2813,7 +2813,7 @@
             const minHomeworldDist = spread * MIN_HOMEWORLD_DISTANCE_FACTOR;
             
 
-            console.log(`createWorld: Creating ${count} stars with spread ${spread}. Min homeworld dist: ${minHomeworldDist.toFixed(2)}`);
+//             console.log(`createWorld: Creating ${count} stars with spread ${spread}. Min homeworld dist: ${minHomeworldDist.toFixed(2)}`);
             
             let homeworldPositions = [];
 
@@ -2915,7 +2915,7 @@
                 }
                  
                 if (!positionOk && (isPlayer || isAI)) { 
-                    console.warn(`Could not place ${isPlayer ? 'player' : `AI ${aiIndex + 1}`} homeworld far enough, placing randomly.`);
+//                     console.warn(`Could not place ${isPlayer ? 'player' : `AI ${aiIndex + 1}`} homeworld far enough, placing randomly.`);
                     starData.mesh.position.copy(getRandomPosition(spread)); 
                     if (isPlayer || isAI) {
                         homeworldPositions.push(starData.mesh.position.clone());
@@ -2965,21 +2965,21 @@
                 starData.defenseHP = starData.defenseLevel * DEFENSE_HP_PER_LEVEL;
                 stars.push(starData);
             }
-            console.log("createWorld: Stars created.");
+//             console.log("createWorld: Stars created.");
             if (stars.length > 0 && stars[0].owner === PLAYER_ID) { 
                 controls.target.copy(stars[0].mesh.position);
                 camera.position.copy(stars[0].mesh.position).add(new THREE.Vector3(0, 100, 180));
-                console.log("createWorld: Camera targeted to player homeworld.");
+//                 console.log("createWorld: Camera targeted to player homeworld.");
             } else {
                 camera.position.set(0, 90, 200); controls.target.set(0,0,0);
-                console.log("createWorld: Camera set to default position.");
+//                 console.log("createWorld: Camera set to default position.");
             }
             controls.update();
-            console.log("createWorld: Finished.");
+//             console.log("createWorld: Finished.");
         }
 
         function createStarConnections() { 
-            console.log("createStarConnections: Called.");
+//             console.log("createStarConnections: Called.");
             const lineMaterial = new THREE.LineBasicMaterial({ color: 0xaaaaaa, transparent: true, opacity: STAR_LANE_DEFAULT_OPACITY });
             let connectionsMade = 0;
             const starCount = stars.length;                // montako tähteä tässä galaksissa
@@ -2999,7 +2999,7 @@
                     const star1 = stars[i];
                     const star2 = stars[j];
                     if(!star1.mesh || !star2.mesh) { 
-                        console.warn("createStarConnections: star mesh not found, skipping connection.");
+//                         console.warn("createStarConnections: star mesh not found, skipping connection.");
                         continue;
                     }
                     const distance = star1.mesh.position.distanceTo(star2.mesh.position);
@@ -3024,7 +3024,7 @@
                     }
                 }
             }
-            console.log(`createStarConnections: Finished. ${connectionsMade} connections made.`);
+//             console.log(`createStarConnections: Finished. ${connectionsMade} connections made.`);
         }
         
         function updateResourceDisplay(){
@@ -3154,7 +3154,7 @@
                     event.preventDefault();
                     controlGroups[numKey] = selectedShips.filter(s => allShips.includes(s));
                     updateGroupsPanel();
-                    console.log(`Control group ${numKey} set with ${controlGroups[numKey].length} ships.`);
+//                     console.log(`Control group ${numKey} set with ${controlGroups[numKey].length} ships.`);
                     return;                       // valmista
                 }
 
@@ -3175,7 +3175,7 @@
                     group.forEach(ship => { if (allShips.includes(ship)) selectShip(ship, true); });
                     controlGroups[numKey] = controlGroups[numKey].filter(s => allShips.includes(s));
                     updateGroupsPanel();
-                    console.log(`Selected control group ${numKey} with ${selectedShips.length} ships.`);
+//                     console.log(`Selected control group ${numKey} with ${selectedShips.length} ships.`);
                 }
             }
         }
@@ -3302,7 +3302,7 @@
                         }
                     }
                 } else {
-                    console.warn("Clicked object without entityId or type in userData", clickedObject);
+//                     console.warn("Clicked object without entityId or type in userData", clickedObject);
                 }
             } else { // Klikattiin tyhjää (eikä ollut veto)
                 if (selectedStar) {
@@ -3336,7 +3336,7 @@
                 if (clickedObject.userData && clickedObject.userData.type === 'star') {
                     const star = stars.find(s => s.id === clickedObject.userData.entityId);
                     if (star && star.mesh) {
-                        console.log("Double clicked star:", star.id.substring(0,5));
+//                         console.log("Double clicked star:", star.id.substring(0,5));
                         
                         const targetPosition = star.mesh.position.clone();
                         const currentCamPos = camera.position.clone();
@@ -3403,7 +3403,7 @@
                 if (targetStarMesh.userData && targetStarMesh.userData.entityId) {
                     const destinationStar = stars.find(s => s.id === targetStarMesh.userData.entityId);
                     if (destinationStar) {
-                        // console.log(`Ordering ${selectedShips.length} ships to Star: ${destinationStar.id.substring(0,5)}`);
+//                         // console.log(`Ordering ${selectedShips.length} ships to Star: ${destinationStar.id.substring(0,5)}`);
                         selectedShips.forEach(ship => {
                             let originStar = ship.parentStar; 
                             if (ship.state === 'moving' && ship.targetStar === null) { 
@@ -3413,9 +3413,9 @@
                             let speed = SHIP_SPEED_SLOW;
                             if (originStar && originStar.connections.includes(destinationStar.id)) {
                                 speed = SHIP_SPEED_FAST;
-                                console.log(`Ship ${ship.id.substring(0,5)} using star lane. Speed: ${speed}`);
+//                                 console.log(`Ship ${ship.id.substring(0,5)} using star lane. Speed: ${speed}`);
                             } else {
-                                console.log(`Ship ${ship.id.substring(0,5)} not using star lane. Speed: ${speed}`);
+//                                 console.log(`Ship ${ship.id.substring(0,5)} not using star lane. Speed: ${speed}`);
                             }
                             // Fighter-boost vain jos ei starlanea
                             if (ship.type === 'Fighter' && speed === SHIP_SPEED_SLOW) {
@@ -3475,7 +3475,7 @@
         function handleStarClick(star) { 
             // Jos kutsutaan ilman tähteä tai tähdellä ei ole mesh-objektia (turvatarkistus)
             if (!star || !star.mesh) {
-                console.warn("handleStarClick: star is null or has no mesh.", star);
+//                 console.warn("handleStarClick: star is null or has no mesh.", star);
                 if (selectionIndicatorMesh) {
                     selectionIndicatorMesh.position.copy(selectedStar.mesh.position);
 
@@ -3524,7 +3524,7 @@
             } else {
                 // Jos selectionIndicatorMesh ei jostain syystä ole alustettu, voit alustaa sen tässä
                 // tai antaa varoituksen. Parempi on varmistaa sen alustus init()-funktiossa.
-                console.warn("selectionIndicatorMesh is not initialized!");
+//                 console.warn("selectionIndicatorMesh is not initialized!");
             }
             // --- VALINTAINDIKAATTORIN LOGIIKKA LOPPUU ---
 
@@ -3768,7 +3768,7 @@
                     planetaryConstructingItemTypeSpan.textContent = `Building: ${itemText} (${Math.ceil(currentItem.timeLeft)}s left)`;
                     planetaryConstructionProgressContainer.style.display = 'block';
                 } else {
-                    console.warn("Could not find target button for planetary progress:", targetButtonId);
+//                     console.warn("Could not find target button for planetary progress:", targetButtonId);
                     // Show progress text even if button isn't found 
                      planetaryConstructingItemTypeSpan.textContent = `Building: ${itemText} (${Math.ceil(currentItem.timeLeft)}s left)`;
                      planetaryConstructionProgressContainer.style.display = 'block';
@@ -3911,7 +3911,7 @@
                 });
                 updateResourceDisplay();
                 handleStarClick(star);
-                console.log(`Infrastructure Lvl ${nextLevel} added to planetary queue at star ${star.id.substring(0,5)}.`);
+//                 console.log(`Infrastructure Lvl ${nextLevel} added to planetary queue at star ${star.id.substring(0,5)}.`);
             }
         }
 
@@ -3925,7 +3925,7 @@
             // 2. Hae aluksen tiedot ja vaatimukset suoraan SHIP_COST-objektista
             const shipStats = SHIP_COST[shipType];
             if (!shipStats) {
-                console.error(`Unknown shipType: ${shipType}`);
+//                 console.error(`Unknown shipType: ${shipType}`);
                 return;
             }
 
@@ -3933,13 +3933,13 @@
 
             // 3. Tarkista, että telakan taso riittää
             if (star.shipyardLevel < requiredLvl) {
-                console.log(`Cannot build ${shipType}, shipyard level ${star.shipyardLevel} is too low. Requires ${requiredLvl}.`);
+//                 console.log(`Cannot build ${shipType}, shipyard level ${star.shipyardLevel} is too low. Requires ${requiredLvl}.`);
                 return;
             }
 
             // 4. Tarkista resurssit
             if (playerResources.credits < creditsCost || playerResources.minerals < mineralsCost) {
-                console.log(`Not enough resources to build ${shipType}.`);
+//                 console.log(`Not enough resources to build ${shipType}.`);
                 return;
             }
 
@@ -3957,7 +3957,7 @@
             // 6. Päivitä käyttöliittymä
             updateResourceDisplay();
             handleStarClick(star); // Päivittää valikon näyttämään jonon muutoksen
-            console.log(`${shipType} added to ship queue at star ${star.id.substring(0,5)}`);
+//             console.log(`${shipType} added to ship queue at star ${star.id.substring(0,5)}`);
         }
         
         function handleUpgradeShipyard(star) {
@@ -3981,7 +3981,7 @@
                 });
                 updateResourceDisplay();
                 handleStarClick(star);
-                console.log(`Shipyard Lvl ${nextLevel} added to planetary queue at star ${star.id.substring(0,5)}.`);
+//                 console.log(`Shipyard Lvl ${nextLevel} added to planetary queue at star ${star.id.substring(0,5)}.`);
             }
         }
 
@@ -4009,9 +4009,9 @@
                 });
                 updateResourceDisplay();
                 handleStarClick(star); 
-                console.log(`Mine added to planetary queue at star ${star.id.substring(0,5)}.`);
+//                 console.log(`Mine added to planetary queue at star ${star.id.substring(0,5)}.`);
             } else {
-                console.log("Not enough resources to build a mine or max mines reached.");
+//                 console.log("Not enough resources to build a mine or max mines reached.");
             }
         }
 
@@ -4036,13 +4036,13 @@
                 });
                 updateResourceDisplay(); 
                 handleStarClick(star); 
-                console.log(`Defense Upgrade added to planetary queue at star ${star.id.substring(0,5)}.`);
+//                 console.log(`Defense Upgrade added to planetary queue at star ${star.id.substring(0,5)}.`);
             }
         }
 
         function spawnShip(parentStar, shipType) {
             if (!parentStar || !parentStar.mesh) {
-                console.error("spawnShip: parentStar or its mesh is undefined.");
+//                 console.error("spawnShip: parentStar or its mesh is undefined.");
                 return;
             }
             const shipId = `ship_${THREE.MathUtils.generateUUID()}`;
@@ -4263,28 +4263,28 @@
                                             resources.minerals += REFUND_M;
                                         }
                                     }
-                                    console.log(
+//                                     console.log(
                                         `[AI-fix] Mine discarded at ${star.name}; refund ${REFUND_C}C/${REFUND_M}M`
                                     );
                                 }
                             } else if (currentItem.type === 'Shipyard') { // Building level 1
                                 star.shipyardLevel = 1;
                                 updateShipyardIndicator(star);
-                                console.log(`${star.owner} Shipyard construction complete at ${star.id.substring(0,5)}.`);
+//                                 console.log(`${star.owner} Shipyard construction complete at ${star.id.substring(0,5)}.`);
                             } else if (currentItem.type.startsWith('Shipyard Lvl')) { // Upgrading
                                 star.shipyardLevel = currentItem.targetLevel;
                                 updateShipyardIndicator(star);
-                                console.log(`${star.owner} Shipyard Upgrade to Lvl ${star.shipyardLevel} complete at ${star.id.substring(0,5)}.`);
+//                                 console.log(`${star.owner} Shipyard Upgrade to Lvl ${star.shipyardLevel} complete at ${star.id.substring(0,5)}.`);
                             } else if (currentItem.type === 'Defense Upgrade') {
                                 star.defenseLevel += 1;
                                 star.defenseHP    += DEFENSE_HP_PER_LEVEL;
                                 updateDefenseRings(star); 
-                                console.log(`${star.owner} Defense Upgrade complete at ${star.id.substring(0,5)}. Level: ${star.defenseLevel}`);
+//                                 console.log(`${star.owner} Defense Upgrade complete at ${star.id.substring(0,5)}. Level: ${star.defenseLevel}`);
                             } else if (currentItem.type.startsWith('Infrastructure Lvl')) { // Infra upgrade
                                 star.infrastructureLevel = currentItem.targetLevel;
                                 star.maxPopulation = INFRA_LIMITS[star.infrastructureLevel].maxPop; // Update limits
                                 star.maxMines = INFRA_LIMITS[star.infrastructureLevel].maxMines;
-                                console.log(`${star.owner} Infrastructure Upgrade to Lvl ${star.infrastructureLevel} complete at ${star.id.substring(0,5)}.`);
+//                                 console.log(`${star.owner} Infrastructure Upgrade to Lvl ${star.infrastructureLevel} complete at ${star.id.substring(0,5)}.`);
                             }
                             star.planetaryConstructionQueue.shift();
                             if (selectedStar === star && star.owner === PLAYER_ID) handleStarClick(star); 
@@ -4404,7 +4404,7 @@
                             ship.mesh.position.add(direction.multiplyScalar(ship.currentSpeed * delta)); 
                             ship.mesh.lookAt(targetPosition);
                         } else { 
-                            //console.log(`Ship ${ship.id.substring(0,5)} (Owner: ${ship.owner}) arrived at star ${ship.targetStar.id.substring(0,5)}`);
+//                             //console.log(`Ship ${ship.id.substring(0,5)} (Owner: ${ship.owner}) arrived at star ${ship.targetStar.id.substring(0,5)}`);
                             ship.parentStar = ship.targetStar; 
                             if (!ship.parentStar.orbitingShips) ship.parentStar.orbitingShips = [];
                             ship.parentStar.orbitingShips.push(ship); 
@@ -4463,7 +4463,7 @@
 
 
                         if (defendingShipsPresent && conqueringFaction !== defendingFaction) { 
-                            console.log(`Conquest of ${star.id.substring(0,5)} by ${conqueringFaction} halted, defending ships of ${defendingFaction} detected.`);
+//                             console.log(`Conquest of ${star.id.substring(0,5)} by ${conqueringFaction} halted, defending ships of ${defendingFaction} detected.`);
                             star.isBeingConqueredBy = null; 
                             conqueringShips.forEach(s => s.state = 'orbiting'); 
                             if (selectedStar === star) updateConquestProgressUI(star); 
@@ -4483,7 +4483,7 @@
                             ) * delta * slowdownRatio;
                             star.conquestProgress += deltaPts;
                             if (star.conquestProgress >= 100) {
-                                //console.log(`Star ${star.id.substring(0,5)} conquered by ${conqueringFaction}!`);
+//                                 //console.log(`Star ${star.id.substring(0,5)} conquered by ${conqueringFaction}!`);
                                 const oldOwner = star.owner; 
                                 const oldMines = star.mines;
                                 const oldShipyardLevel = star.shipyardLevel; // Preserve shipyard level
@@ -4497,7 +4497,7 @@
                                     const maxMinesToDestroy = Math.ceil(oldMines * 0.5);
                                     const minesDestroyed = oldMines === 1 ? 1 : Math.max(1, Math.floor(Math.random() * maxMinesToDestroy) + 1);
                                     star.mines = Math.max(0, oldMines - minesDestroyed);
-                                    // console.log(`${minesDestroyed} mines destroyed during conquest of ${star.id.substring(0,5)}. Remaining: ${star.mines}`);
+//                                     // console.log(`${minesDestroyed} mines destroyed during conquest of ${star.id.substring(0,5)}. Remaining: ${star.mines}`);
                                 } else {
                                     star.mines = 0;
                                 }
@@ -4618,7 +4618,7 @@
 
             // Vaurioita PD:tä
             damagePlanetaryDefense(star, dmgPerShot);
-            console.log(`${shooterType} hits PD (-${dmgPerShot}) on ${star.name}`);
+//             console.log(`${shooterType} hits PD (-${dmgPerShot}) on ${star.name}`);
             return true;
         }
 
@@ -4792,7 +4792,7 @@
                 for (const groupKey in controlGroups) {
                     controlGroups[groupKey] = controlGroups[groupKey].filter(s => s.id !== ship.id);
                 }
-                //console.log(`Ship ${ship.id.substring(0,5)} (Owner: ${ship.owner}) destroyed at star ${starOfCombat.id.substring(0,5)}.`);
+//                 //console.log(`Ship ${ship.id.substring(0,5)} (Owner: ${ship.owner}) destroyed at star ${starOfCombat.id.substring(0,5)}.`);
             });
             updateSelectedUnitsDisplay(); 
             updateGroupsPanel();

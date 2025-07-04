@@ -7,7 +7,7 @@ const socket = io('http://localhost:3001', { transports: ['websocket'] });
 const GAME_ID = '6853a9f6bba3d5b581c553a7';
 
 socket.on('connect', () => {
-  console.log('✅  Yhteys avattu, id =', socket.id);
+//   console.log('✅  Yhteys avattu, id =', socket.id);
 
   // Kerro huone, jotta GameManager broadcastaa sinulle.
   // Jos sinulla ei vielä ole gameId:tä, voit testata ilman joinia
@@ -19,13 +19,13 @@ socket.on('connect', () => {
 });
 
 socket.on('hello', (msg) => {
-  console.log('👋  Palvelin sanoi:', msg);
+//   console.log('👋  Palvelin sanoi:', msg);
 });
 
 socket.on('game_diff', (diff) => {
-  console.log('📦  Game diff saatu:', diff);
+//   console.log('📦  Game diff saatu:', diff);
 });
 
 socket.on('disconnect', (reason) => {
-  console.log('❌  Katkesi:', reason);
+//   console.log('❌  Katkesi:', reason);
 });

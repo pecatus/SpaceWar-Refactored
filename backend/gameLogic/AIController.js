@@ -240,7 +240,7 @@ class AIController {
       // Tarkista gathering timeout
       if (this.gatheringTarget && this.gatheringStartTurn) {
           if (turnNumber - this.gatheringStartTurn > this.GATHERING_TIMEOUT) {
-              console.log(`[AI] Gathering timeout - proceeding with available forces`);
+//               console.log(`[AI] Gathering timeout - proceeding with available forces`);
               this.gatheringTarget = null;
               this.gatheringFor = null;
               this.gatheringStartTurn = null;
@@ -605,9 +605,9 @@ class AIController {
       
       // Debug loki (poista tuotannosta)
       //if (Math.random() < 0.05) { // 5% ajasta
-      //    console.log(`[AI-SHIPS] Enemy distribution: F:${(enemyDist.fighterRatio*100).toFixed(0)}% D:${(enemyDist.destroyerRatio*100).toFixed(0)}% C:${(enemyDist.cruiserRatio*100).toFixed(0)}%`);
-      //    console.log(`[AI-SHIPS] Counter weights: F:${counterWeights.Fighter.toFixed(2)} D:${counterWeights.Destroyer.toFixed(2)} C:${counterWeights.Cruiser.toFixed(2)}`);
-      //    console.log(`[AI-SHIPS] Building priority: ${priorities.join(' > ')}`);
+//       //    console.log(`[AI-SHIPS] Enemy distribution: F:${(enemyDist.fighterRatio*100).toFixed(0)}% D:${(enemyDist.destroyerRatio*100).toFixed(0)}% C:${(enemyDist.cruiserRatio*100).toFixed(0)}%`);
+//       //    console.log(`[AI-SHIPS] Counter weights: F:${counterWeights.Fighter.toFixed(2)} D:${counterWeights.Destroyer.toFixed(2)} C:${counterWeights.Cruiser.toFixed(2)}`);
+//       //    console.log(`[AI-SHIPS] Building priority: ${priorities.join(' > ')}`);
       //}
       
       return priorities;
@@ -831,7 +831,7 @@ class AIController {
       if (needsGathering && bestTarget.defenseLevel > 0) {
           const gatherPoint = this._findGatheringPoint(bestTarget, myStars);
           if (gatherPoint) {
-              console.log(`[AI] Starting fleet gathering at ${gatherPoint.name} for attack on ${bestTarget.name}`);
+//               console.log(`[AI] Starting fleet gathering at ${gatherPoint.name} for attack on ${bestTarget.name}`);
               this.gatheringTarget = gatherPoint;
               this.gatheringFor = bestTarget;
               this.gatheringStartTurn = this._turn;
@@ -925,7 +925,7 @@ class AIController {
       const survivorPower = survivors.reduce((sum, s) => sum + shipPower(s), 0);
       
       if (survivorPower >= 8) { // Riittävä ylivoima
-          console.log(`[AI] Fleet gathered! Attacking ${targetStar.name} with ${gatheredShips.length} ships`);
+//           console.log(`[AI] Fleet gathered! Attacking ${targetStar.name} with ${gatheredShips.length} ships`);
           
           // Hyökkää!
           gatheredShips.forEach(ship => {

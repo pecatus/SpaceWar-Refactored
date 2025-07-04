@@ -328,11 +328,11 @@ let mineSpriteMaterial, popSpriteMaterial, shipyardSpriteMaterial;
 
 // apufunktio rakenteiden debuggaamiseen:
 function debugShipsByStarClient() {
-    // console.log('[DEBUG] Ships by star:');
+//     // console.log('[DEBUG] Ships by star:');
     shipsByStarClient.forEach((ships, starId) => {
         const star = starsById.get(starId);
         const starName = star?.userData?.starData?.name || 'Unknown';
-        // console.log(`  ${starName}: ${ships.size} ships`);
+//         // console.log(`  ${starName}: ${ships.size} ships`);
     });
 }
 
@@ -523,7 +523,7 @@ class CombatEffectGroup {
         if (freeCombatRingSlots.size > 0) {
             this.instanceIndex = freeCombatRingSlots.values().next().value;
             freeCombatRingSlots.delete(this.instanceIndex);
-            console.log(`Reusing combat ring slot ${this.instanceIndex}`);
+//             console.log(`Reusing combat ring slot ${this.instanceIndex}`);
         } else {
             this.instanceIndex = data.count;
             data.count++;
@@ -631,7 +631,7 @@ class CombatEffectGroup {
             
             // Vapauta slotti uudelleenkäyttöön
             freeCombatRingSlots.add(this.instanceIndex);
-            console.log(`Freed combat ring slot ${this.instanceIndex}, now ${freeCombatRingSlots.size} free slots`);
+//             console.log(`Freed combat ring slot ${this.instanceIndex}, now ${freeCombatRingSlots.size} free slots`);
             
             COMBAT_RING_INSTANCE.instanceMatrix.needsUpdate = true;
         }
@@ -647,7 +647,7 @@ export function initThreeIfNeeded(mountTo = document.body) {
     if (ready) return;
     ready = true;
 
-    // console.log("Initializing Three.js scene...");
+//     // console.log("Initializing Three.js scene...");
 
     // Scene setup
     scene = new THREE.Scene();
@@ -698,7 +698,7 @@ export function initThreeIfNeeded(mountTo = document.body) {
     Object.values(SHIP_INSTANCED_MESHES).forEach(mesh => {
         mesh.frustumCulled = false;
         if (!scene.children.includes(mesh)) {
-            //console.log('Adding mesh to scene in init');
+//             //console.log('Adding mesh to scene in init');
             scene.add(mesh);
         }
     });
@@ -727,7 +727,7 @@ export function initThreeIfNeeded(mountTo = document.body) {
     // Responsive
     window.addEventListener('resize', onWindowResize, false);
 
-    // console.log("Three.js scene initialized successfully");
+//     // console.log("Three.js scene initialized successfully");
 }
 
 function setupPostProcessing() {
@@ -783,7 +783,7 @@ function getShipMaterial(baseColor) {
 }
 
 function initShipInstances() {
-    // console.log('🎯 initShipInstances called, scene exists:', !!scene);
+//     // console.log('🎯 initShipInstances called, scene exists:', !!scene);
     
     ['Fighter', 'Destroyer', 'Cruiser', 'Slipstream Frigate'].forEach(type => {
         const geometry = getShipGeometry(type);
@@ -806,13 +806,13 @@ function initShipInstances() {
         
         instancedMesh.instanceColor = new THREE.InstancedBufferAttribute(colors, 3);
         
-        // console.log(`Adding ${type} to scene...`);
+//         // console.log(`Adding ${type} to scene...`);
         scene.add(instancedMesh);
-        //console.log(`${type} added to scene:`, scene.children.includes(instancedMesh));
+//         //console.log(`${type} added to scene:`, scene.children.includes(instancedMesh));
         
         SHIP_INSTANCED_MESHES[type] = instancedMesh;
         
-        //console.log(`Created InstancedMesh for ${type}`);
+//         //console.log(`Created InstancedMesh for ${type}`);
     });
 }
 
@@ -1345,7 +1345,7 @@ function selectStar(starData) {
     
     // Jos meshiä ei jostain syystä löydy, älä tee mitään
     if (!starMesh) {
-        console.warn(`Could not find mesh for selected star: ${starData.name}`);
+//         console.warn(`Could not find mesh for selected star: ${starData.name}`);
         return;
     }
 
@@ -1399,16 +1399,16 @@ function handleShipClick(virtualShip, additive = false) {
 function deselectShip(virtualShip) {
     if (!virtualShip || !virtualShip.userData.isSelected) return;
 
-    //console.log(`[DEBUG] Deselecting individual ship:`, virtualShip.userData.entityId);
+//     //console.log(`[DEBUG] Deselecting individual ship:`, virtualShip.userData.entityId);
     
     virtualShip.userData.isSelected = false;
 
     // Hae aluksen oikea omistajan väri - käytä userData.owner
     const ownerId = virtualShip.userData.owner || virtualShip.userData.shipData?.ownerId;
-    //console.log(`[DEBUG] Owner ID:`, ownerId);
+//     //console.log(`[DEBUG] Owner ID:`, ownerId);
     
     const ownerColorHex = getPlayerColor(ownerId);
-    //console.log(`[DEBUG] Owner color hex:`, ownerColorHex.toString(16));
+//     //console.log(`[DEBUG] Owner color hex:`, ownerColorHex.toString(16));
     
     const ownerColor = new THREE.Color(ownerColorHex);
 
@@ -1417,7 +1417,7 @@ function deselectShip(virtualShip) {
     const instanceIndex = virtualShip.userData.instanceIndex;
 
     if (instancedMesh && instanceIndex !== undefined) {
-        //console.log(`[DEBUG] Setting color at index ${instanceIndex} to:`, ownerColor);
+//         //console.log(`[DEBUG] Setting color at index ${instanceIndex} to:`, ownerColor);
         instancedMesh.setColorAt(instanceIndex, ownerColor);
         if (instancedMesh.instanceColor) {
             instancedMesh.instanceColor.needsUpdate = true;
@@ -1477,13 +1477,13 @@ function updateSelectedUnitsDisplay() {
 function orderSelectedShipsToStar(targetStar) {
     if (selectedShips.length === 0) return;
     
-    //console.log(`Ordering ${selectedShips.length} ships to star ${targetStar.name}`);
+//     //console.log(`Ordering ${selectedShips.length} ships to star ${targetStar.name}`);
     
     selectedShips.forEach(virtualShip => {
         const shipData = virtualShip.userData.shipData;
         
         if (!shipData || !shipData._id) {
-            console.error("Virtual ship without proper data:", virtualShip);
+//             console.error("Virtual ship without proper data:", virtualShip);
             return;
         }
         
@@ -1494,7 +1494,7 @@ function orderSelectedShipsToStar(targetStar) {
             fromStarId: shipData.parentStarId
         };
         
-        //console.log("Sending ship command:", command);
+//         //console.log("Sending ship command:", command);
         window.dispatchEvent(new CustomEvent('shipCommand', { detail: command }));
     });
 }
@@ -1509,7 +1509,7 @@ function selectShip(virtualShip) {
     
     const isPlayerShip = shipOwnerId === humanIdStr;
     if (!isPlayerShip) {
-        //console.log("Cannot select - not player ship. Owner:", shipOwnerId, "Human:", humanIdStr);
+//         //console.log("Cannot select - not player ship. Owner:", shipOwnerId, "Human:", humanIdStr);
         return;
     }
     
@@ -1572,7 +1572,7 @@ function focusOnStar(starData) {
 }
 
 function focusOnPlayerHomeworld(starMesh) {
-    // console.log("Focusing camera on player homeworld");
+//     // console.log("Focusing camera on player homeworld");
     
     const targetPosition = starMesh.position.clone();
     const offset = new THREE.Vector3(0, 100, 220); // Same as initial camera offset
@@ -1581,7 +1581,7 @@ function focusOnPlayerHomeworld(starMesh) {
     camera.position.copy(targetPosition).add(offset);
     controls.update();
     
-    // console.log("Camera focused on homeworld at", targetPosition);
+//     // console.log("Camera focused on homeworld at", targetPosition);
 }
 
 /**
@@ -1821,17 +1821,17 @@ function updateExplosions(delta) {
 /* ========================================================================== */
 
 export function buildFromSnapshot(snap) {
-    //console.log("Building from snapshot:", snap);
+//     //console.log("Building from snapshot:", snap);
     
     if (!ready) {
-        console.warn("Scene not ready, initializing first");
+//         console.warn("Scene not ready, initializing first");
         initThreeIfNeeded();
     }
     // ALUKSET
     // 1. Varmista, että alusten instanced‐meshit ovat scenessä
     Object.entries(SHIP_INSTANCED_MESHES).forEach(([type, mesh]) => {
         if (!scene.children.includes(mesh)) {
-            //console.log(`Re-adding ${type} InstancedMesh to scene`);
+//             //console.log(`Re-adding ${type} InstancedMesh to scene`);
             scene.add(mesh);
         }
     });
@@ -1870,13 +1870,13 @@ export function buildFromSnapshot(snap) {
 
     // NEBULAT
     if (nebulaSprites.length === 0) {
-        //console.log("Recreating nebula sprites...");
+//         //console.log("Recreating nebula sprites...");
         createNebulaSprites();
     }
 
     // --- TYHJENNÄ HAKURAKENNE ---
     shipsByStarClient.clear();
-    //console.log("[TRACKING] Cleared ship tracking structure");
+//     //console.log("[TRACKING] Cleared ship tracking structure");
 
     if (snap.stars) {
         spawnStars(snap.stars);
@@ -1887,14 +1887,14 @@ export function buildFromSnapshot(snap) {
         spawnShips(snap.ships);
 
         // --- VARMISTA ETTÄ KAIKKI ALUKSET ON HAKURAKENTEESSA ---
-        //console.log(`[TRACKING] Initialized tracking for ${shipsById.size} ships`);
+//         //console.log(`[TRACKING] Initialized tracking for ${shipsById.size} ships`);
         let trackedCount = 0;
         shipsByStarClient.forEach((ships, starId) => {
             trackedCount += ships.size;
         });
-        //console.log(`[TRACKING] Total tracked ships: ${trackedCount}`);
+//         //console.log(`[TRACKING] Total tracked ships: ${trackedCount}`);
     }
-    //console.log("Scene built from snapshot");
+//     //console.log("Scene built from snapshot");
 }
 
 function spawnStars(starList) {
@@ -2016,11 +2016,11 @@ function createStarlanes(starList) {
 
 
 function spawnShips(shipList) {
-    //console.log('🚀 spawnShips called with', shipList.length, 'ships');
+//     //console.log('🚀 spawnShips called with', shipList.length, 'ships');
     // Debug: tarkista että meshit ovat olemassa
     Object.entries(SHIP_INSTANCED_MESHES).forEach(([type, mesh]) => {
         if (!mesh) {
-            console.error(`InstancedMesh for ${type} is missing!`);
+//             console.error(`InstancedMesh for ${type} is missing!`);
         }
     });
     // Batch-käsittely tyypin mukaan
@@ -2038,7 +2038,7 @@ function spawnShips(shipList) {
     Object.entries(shipsByType).forEach(([type, ships]) => {
         const instancedMesh = SHIP_INSTANCED_MESHES[type];
         if (!instancedMesh) {
-            console.error(`No InstancedMesh found for type: ${type}`);
+//             console.error(`No InstancedMesh found for type: ${type}`);
             return;
         }
         
@@ -2106,7 +2106,7 @@ function spawnShips(shipList) {
             if (freeInstanceSlots[type].size > 0) {
                 instanceIndex = freeInstanceSlots[type].values().next().value;
                 freeInstanceSlots[type].delete(instanceIndex);
-                console.log(`Reusing slot ${instanceIndex} for ${type}`);
+//                 console.log(`Reusing slot ${instanceIndex} for ${type}`);
             } else {
                 instanceIndex = data.count;
             }
@@ -2198,7 +2198,7 @@ function spawnShips(shipList) {
 
 
         
-        //console.log(`Updated ${type} InstancedMesh: ${data.count} instances`);
+//         //console.log(`Updated ${type} InstancedMesh: ${data.count} instances`);
     });
 }
 
@@ -2232,7 +2232,7 @@ function updateDefenseRings(starData, starMesh) {
         for (let i = 0; i < starData.defenseLevel; i++) {
             let freeIndex = defenseRingData.starIds.indexOf(null);
             if (freeIndex === -1) {
-                console.warn("Ran out of defense ring instance slots!");
+//                 console.warn("Ran out of defense ring instance slots!");
                 break;
             }
 
@@ -2453,7 +2453,7 @@ function updateShipyardIndicator(starData, starMesh) {
     if (starData.shipyardRingInstances && starData.shipyardRingInstances.length > 0) {
         // Jos renkaiden määrä EI vastaa tasoa, päivitys tarvitaan
         if (starData.shipyardRingInstances.length !== starData.shipyardLevel) {
-            console.log(`[SHIPYARD] Ring count mismatch: ${starData.shipyardRingInstances.length} rings but level ${starData.shipyardLevel}`);
+//             console.log(`[SHIPYARD] Ring count mismatch: ${starData.shipyardRingInstances.length} rings but level ${starData.shipyardLevel}`);
             // Jatka normaalisti siivous-osioon
         } else {
             // Tarkista että renkaat ovat valideja
@@ -2467,20 +2467,20 @@ function updateShipyardIndicator(starData, starMesh) {
             }
             
             if (allValid) {
-                console.log(`[SHIPYARD] ${starData.name} already has correct rings`);
+//                 console.log(`[SHIPYARD] ${starData.name} already has correct rings`);
                 return;
             }
         }
     }
 
     // DEBUG: Tarkista lähtötilanne
-    console.log(`[SHIPYARD] Creating rings for ${starData.name} (${starData._id}), level: ${starData.shipyardLevel}`);
+//     console.log(`[SHIPYARD] Creating rings for ${starData.name} (${starData._id}), level: ${starData.shipyardLevel}`);
     
     // SIIVOA vanhat instanssit ensin JOS level on muuttunut
     if (starData.shipyardRingInstances && starData.shipyardRingInstances.length > 0) {
         // Tarkista onko level muuttunut
         if (starData.shipyardRingInstances.length !== starData.shipyardLevel) {
-            console.log(`[SHIPYARD] Level changed for ${starData.name}: ${starData.shipyardRingInstances.length} -> ${starData.shipyardLevel}`);
+//             console.log(`[SHIPYARD] Level changed for ${starData.name}: ${starData.shipyardRingInstances.length} -> ${starData.shipyardLevel}`);
             
             // Poista KAIKKI vanhat renkaat
             starData.shipyardRingInstances.forEach(ringRef => {
@@ -2549,7 +2549,7 @@ function updateShipyardIndicator(starData, starMesh) {
         
         // TARKISTA että instanced mesh on olemassa
         if (!instancedMesh) {
-            console.error(`[SHIPYARD] No instanced mesh for ${levelKey}!`);
+//             console.error(`[SHIPYARD] No instanced mesh for ${levelKey}!`);
             continue;
         }
         
@@ -2569,12 +2569,12 @@ function updateShipyardIndicator(starData, starMesh) {
             if (data.count < MAX_SHIPYARDS) {
                 instanceIndex = data.count;
             } else {
-                console.error(`[SHIPYARD] No free slots for ${levelKey}!`);
+//                 console.error(`[SHIPYARD] No free slots for ${levelKey}!`);
                 continue;
             }
         }
         
-        console.log(`[SHIPYARD]   Creating ring ${lvl}/${starData.shipyardLevel} at index ${instanceIndex}`);
+//         console.log(`[SHIPYARD]   Creating ring ${lvl}/${starData.shipyardLevel} at index ${instanceIndex}`);
         
         // Aseta positio ja skaalaus
         dummy.position.copy(starMesh.position);
@@ -2614,7 +2614,7 @@ function updateShipyardIndicator(starData, starMesh) {
         instancedMesh.instanceMatrix.needsUpdate = true;
     }
     
-    console.log(`[SHIPYARD] Created ${starData.shipyardRingInstances.length} rings for ${starData.name}`);
+//     console.log(`[SHIPYARD] Created ${starData.shipyardRingInstances.length} rings for ${starData.name}`);
 }
 
 function getIndicatorColor(ownerId) {
@@ -2686,7 +2686,7 @@ function updateCombatRings(delta) {
 }
 
 export function applyDiff(diffArr = []) {
-    //console.log("Applying diff:", diffArr);
+//     //console.log("Applying diff:", diffArr);
     
     diffArr.forEach(act => {
         switch (act.action) {
@@ -2733,7 +2733,7 @@ export function applyDiff(diffArr = []) {
                 // TÄRKEÄ: Jos shipyard level muuttui, päivitä renkaat HETI
                 if (act.updatedFields.shipyardLevel !== undefined && 
                     act.updatedFields.shipyardLevel !== oldShipyardLevel) {
-                    console.log(`[STAR_UPDATED] Shipyard level changed: ${oldShipyardLevel} -> ${act.updatedFields.shipyardLevel}`);
+//                     console.log(`[STAR_UPDATED] Shipyard level changed: ${oldShipyardLevel} -> ${act.updatedFields.shipyardLevel}`);
                     updateShipyardIndicator(star, starMesh);
                     
                 }
@@ -2754,7 +2754,7 @@ export function applyDiff(diffArr = []) {
                 star.defenseLevel = act.newLevel;
                 updateDefenseRings(star, starMesh);
                 
-                //console.log(`Defense damaged at star ${act.starId}, new level: ${act.newLevel}`);
+//                 //console.log(`Defense damaged at star ${act.starId}, new level: ${act.newLevel}`);
                 break;
             }
             
@@ -2781,13 +2781,13 @@ export function applyDiff(diffArr = []) {
                         shipsByStarClient.set(starId, new Set());
                     }
                     shipsByStarClient.get(starId).add(shipMesh);
-                    //console.log(`[SHIP-TRACKING] Added ship ${act.shipId} to star ${starId}`);
+//                     //console.log(`[SHIP-TRACKING] Added ship ${act.shipId} to star ${starId}`);
                 }
                 
                 // Merkitse tähti tarkistettavaksi combatille
                 markStarForCombatCheck(act.starId);
                 
-                //console.log(`[SHIP_SPAWNED] Ship ${act.shipId} spawned at star ${act.starId}`);
+//                 //console.log(`[SHIP_SPAWNED] Ship ${act.shipId} spawned at star ${act.starId}`);
                 break;
             }
             
@@ -2801,7 +2801,7 @@ export function applyDiff(diffArr = []) {
                 const departureStarId = sd.parentStarId || act.fromStarId;
                 if (departureStarId && shipsByStarClient.has(departureStarId)) {
                     shipsByStarClient.get(departureStarId).delete(mesh);
-                    //console.log(`[SHIP-TRACKING] Removed ship ${act.shipId} from star ${departureStarId}`);
+//                     //console.log(`[SHIP-TRACKING] Removed ship ${act.shipId} from star ${departureStarId}`);
                 }
 
                 // TALLENNA LÄHTÖTÄHTI ENNEN NOLLAUSTA
@@ -2840,7 +2840,7 @@ export function applyDiff(diffArr = []) {
                     }
                 }
 
-                //console.log(`Ship ${act.shipId} moving ${act.fromStarId || sd.departureStarId} → ${act.toStarId} @v=${act.speed}`);
+//                 //console.log(`Ship ${act.shipId} moving ${act.fromStarId || sd.departureStarId} → ${act.toStarId} @v=${act.speed}`);
                 
                 // Merkitse lähtötähti tarkistettavaksi (combat check)
                 markStarForCombatCheck(sd.departureStarId);
@@ -2850,7 +2850,7 @@ export function applyDiff(diffArr = []) {
             case 'SHIP_ARRIVED': {
                 // Jos alus ei ole vielä spawnattu, luo se nyt
                 if (!shipsById.has(act.shipId)) {
-                    //console.log(`[SHIP_ARRIVED] Ship not found: ${act.shipId}, creating it now...`);
+//                     //console.log(`[SHIP_ARRIVED] Ship not found: ${act.shipId}, creating it now...`);
                     
                     // Luo alus minimal datalla
                     const recoveryShipData = {
@@ -2873,7 +2873,7 @@ export function applyDiff(diffArr = []) {
                                 shipsByStarClient.set(act.atStarId, new Set());
                             }
                             shipsByStarClient.get(act.atStarId).add(shipMesh);
-                            //console.log(`[RECOVERY] Ship ${act.shipId} recovered and added to tracking`);
+//                             //console.log(`[RECOVERY] Ship ${act.shipId} recovered and added to tracking`);
                         }
                     }, 10);
                     
@@ -2882,7 +2882,7 @@ export function applyDiff(diffArr = []) {
                 
                 const shipMesh = shipsById.get(act.shipId);
                 if (!shipMesh) {
-                    console.error(`[SHIP_ARRIVED] Ship mesh not found: ${act.shipId}`);
+//                     console.error(`[SHIP_ARRIVED] Ship mesh not found: ${act.shipId}`);
                     break;
                 }
 
@@ -2896,7 +2896,7 @@ export function applyDiff(diffArr = []) {
                 // KRIITTINEN: Etsi kohdetähti
                 const starMesh = starsById.get(act.atStarId);
                 if (!starMesh) {
-                    console.error(`[SHIP_ARRIVED] Target star not found: ${act.atStarId}`);
+//                     console.error(`[SHIP_ARRIVED] Target star not found: ${act.atStarId}`);
                     break;
                 }
                 
@@ -2926,12 +2926,12 @@ export function applyDiff(diffArr = []) {
                     shipsByStarClient.set(atStarId, new Set());
                 }
                 shipsByStarClient.get(atStarId).add(shipMesh);
-                //console.log(`[SHIP-TRACKING] Added ship ${act.shipId} to star ${atStarId} (arrival)`);
+//                 //console.log(`[SHIP-TRACKING] Added ship ${act.shipId} to star ${atStarId} (arrival)`);
 
                 // Merkitse tähti tarkistettavaksi
                 markStarForCombatCheck(act.atStarId);
                 
-                //console.log(`[VISUAL] Ship ${act.shipId} placed in orbit around ${starMesh.userData.starData.name}`);
+//                 //console.log(`[VISUAL] Ship ${act.shipId} placed in orbit around ${starMesh.userData.starData.name}`);
                 break;
             }
 
@@ -2968,7 +2968,7 @@ export function applyDiff(diffArr = []) {
                 const effect = new CombatEffectGroup(starMesh, scene);
                 combatEffects.set(act.starId, effect);
                 
-                //console.log("⚔️ Combat effects started at star", act.starId);
+//                 //console.log("⚔️ Combat effects started at star", act.starId);
                 break;
             }
 
@@ -3000,7 +3000,7 @@ export function applyDiff(diffArr = []) {
                         delete starMesh.userData.conquestRing;
                         starMesh.userData.conquestRing = null;
                         
-                        //console.log("🛑 Conquest halted, ring removed");
+//                         //console.log("🛑 Conquest halted, ring removed");
                     }
                 }
                 break;
@@ -3042,7 +3042,7 @@ export function applyDiff(diffArr = []) {
                     
                     // Vapauta slotti uudelleenkäyttöön
                     freeInstanceSlots[type].add(instanceIndex);
-                    console.log(`Freed slot ${instanceIndex} for ${type}, now ${freeInstanceSlots[type].size} free slots`);
+//                     console.log(`Freed slot ${instanceIndex} for ${type}, now ${freeInstanceSlots[type].size} free slots`);
                 }
                 
                 // Siivoa myös kupla pois, jos se on olemassa
@@ -3071,7 +3071,7 @@ export function applyDiff(diffArr = []) {
                 const ring = createConquestRing(starMesh, conquerorColor);
                 starMesh.userData.conquestRing = ring;
                 
-                //console.log("⚔️ Conquest ring created for star", act.starId);
+//                 //console.log("⚔️ Conquest ring created for star", act.starId);
                 break;
             }
 
@@ -3127,7 +3127,7 @@ export function applyDiff(diffArr = []) {
 
                 updateStarIndicators(starMesh.userData.starData, starMesh);
                 
-                //console.log("🏴 Conquest complete, star color updated");
+//                 //console.log("🏴 Conquest complete, star color updated");
                 break;
             }
             case 'HUB_NETWORK_UPDATED': {
@@ -3141,7 +3141,7 @@ export function applyDiff(diffArr = []) {
                     const toMesh = starsById.get(conn.to);
 
                     if (!fromMesh || !toMesh) {
-                        console.warn('Could not find stars for Hub starlane:', conn);
+//                         console.warn('Could not find stars for Hub starlane:', conn);
                         return; // Käsittelee forEach-loopin seuraavan alkion
                     }
 
@@ -3180,7 +3180,7 @@ export function startAnimateLoop() {
     if (animStarted) return; // Estä useat loopit
     animStarted = true;
     clock.start();
-    // console.log("Starting animation loop...");
+//     // console.log("Starting animation loop...");
 
     function loop() {
         if (fpsStats.frameTime > 20) { // Yli 20ms = alle 50fps
@@ -3287,7 +3287,7 @@ export function stopAnimateLoop() {
     }
     animStarted = false;
     clock.stop();
-    // console.log("Animation loop stopped.");
+//     // console.log("Animation loop stopped.");
 }
 
 
@@ -3316,7 +3316,7 @@ function checkForCombatSituations(delta) {
         if (!shipsAtStarSet || shipsAtStarSet.size === 0) {
             // Jos täällä oli taistelu, lopeta se
             if (combatEffects.has(starId)) {
-                //console.log("✅ [CLIENT] Combat ended at star", starId, "- no ships");
+//                 //console.log("✅ [CLIENT] Combat ended at star", starId, "- no ships");
                 const effect = combatEffects.get(starId);
                 effect.cleanup();
                 combatEffects.delete(starId);
@@ -3346,9 +3346,9 @@ function checkForCombatSituations(delta) {
 
         if (needsCombat) {
             if (!combatEffects.has(starId)) {
-                //console.log("⚔️ [CLIENT] Combat situation detected at star", starId);
-                //console.log(`   - Ships: ${shipsAtStarSet.size}, Factions: ${Array.from(factions).map(f => f.slice(-4)).join(', ')}`);
-                //console.log(`   - Star owner: ${starOwnerId?.slice(-4) || 'neutral'}, Defense: ${starMesh.userData.starData.defenseLevel}`);
+//                 //console.log("⚔️ [CLIENT] Combat situation detected at star", starId);
+//                 //console.log(`   - Ships: ${shipsAtStarSet.size}, Factions: ${Array.from(factions).map(f => f.slice(-4)).join(', ')}`);
+//                 //console.log(`   - Star owner: ${starOwnerId?.slice(-4) || 'neutral'}, Defense: ${starMesh.userData.starData.defenseLevel}`);
                 
                 // Rajoita aktiivisten efektien määrä
                 if (combatEffects.size >= MAX_ACTIVE_COMBAT_EFFECTS) {
@@ -3365,7 +3365,7 @@ function checkForCombatSituations(delta) {
             }
         } else {
             if (combatEffects.has(starId)) {
-                //console.log("✅ [CLIENT] Combat ended at star", starId);
+//                 //console.log("✅ [CLIENT] Combat ended at star", starId);
                 const effect = combatEffects.get(starId);
                 effect.cleanup();
                 combatEffects.delete(starId);
@@ -3388,7 +3388,7 @@ function checkForCombatSituations(delta) {
     const duration = endTime - startTime;
     
     if (duration > 10) { // Varoitus jos yli 10ms
-        console.warn(`[PERFORMANCE] Combat check took ${duration.toFixed(2)}ms for ${starsChecked} stars, ${totalShipsProcessed} ships`);
+//         console.warn(`[PERFORMANCE] Combat check took ${duration.toFixed(2)}ms for ${starsChecked} stars, ${totalShipsProcessed} ships`);
     }
 }
 
@@ -3436,7 +3436,7 @@ function updateOrbitingShips(delta) {
         });
         
         if (fixed > 0) {
-            // console.log(`[AUTO-FIX] Re-tracked ${fixed} ships`);
+//             // console.log(`[AUTO-FIX] Re-tracked ${fixed} ships`);
         }
     }
     
@@ -3457,7 +3457,7 @@ function updateOrbitingShips(delta) {
         
         // Tarkista että shipData on olemassa
         if (!shipData) {
-            console.warn("Virtual ship without shipData:", virtualShip);
+//             console.warn("Virtual ship without shipData:", virtualShip);
             return;
         }
         
@@ -3621,7 +3621,7 @@ function updateOrbitingShips(delta) {
         
         const instancedMesh = SHIP_INSTANCED_MESHES[type];
         if (!instancedMesh) {
-            console.warn(`No InstancedMesh found for type ${type}`);
+//             console.warn(`No InstancedMesh found for type ${type}`);
             return;
         }
         
@@ -3629,7 +3629,7 @@ function updateOrbitingShips(delta) {
         
         updates.forEach(update => {
             if (update.index === undefined || update.index < 0) {
-                console.warn('Invalid instance index:', update);
+//                 console.warn('Invalid instance index:', update);
                 return;
             }
             
@@ -3641,7 +3641,7 @@ function updateOrbitingShips(delta) {
             try {
                 instancedMesh.setMatrixAt(update.index, dummy.matrix);
             } catch (e) {
-                console.error(`Failed to update instance ${update.index}:`, e);
+//                 console.error(`Failed to update instance ${update.index}:`, e);
             }
         });
         
@@ -3649,7 +3649,7 @@ function updateOrbitingShips(delta) {
         
         // Debug log
         if (frameSkipCounter % 60 === 0) {
-            // console.log(`Updated ${updates.length} ${type} instances`);
+//             // console.log(`Updated ${updates.length} ${type} instances`);
         }
     });
 }
@@ -3778,7 +3778,7 @@ function createConquestRing(starMesh, color = 0xffa500) {
  */
 export function cleanupScene() {
     stopAnimateLoop();
-    // console.log('[CLEANUP] Siivotaan vanhan pelin 3D-objektit...');
+//     // console.log('[CLEANUP] Siivotaan vanhan pelin 3D-objektit...');
     
     animStarted = false;
     if (clock) clock.stop();
@@ -4010,12 +4010,12 @@ export function cleanupScene() {
         window.gc();
     }
 
-    // console.log('[CLEANUP] 3D-maailma siivottu perusteellisesti.');
+//     // console.log('[CLEANUP] 3D-maailma siivottu perusteellisesti.');
 }
 
 // Manuaalinen siivous
 function performMemoryCleanup() {
-    // console.log('🧹 [MEMORY-CLEANUP] Starting manual memory cleanup...');
+//     // console.log('🧹 [MEMORY-CLEANUP] Starting manual memory cleanup...');
     
     let cleaned = 0;
     
@@ -4060,11 +4060,11 @@ function performMemoryCleanup() {
     starsToCheck.clear();
     validStarsToCheck.forEach(id => starsToCheck.add(id));
     
-    // console.log(`✅ [MEMORY-CLEANUP] Cleaned ${cleaned} obsolete references`);
+//     // console.log(`✅ [MEMORY-CLEANUP] Cleaned ${cleaned} obsolete references`);
 }
 
 function cleanupCombatChecks() {
-    // console.log('🔧 [COMBAT-CLEANUP] Fixing ship tracking...');
+//     // console.log('🔧 [COMBAT-CLEANUP] Fixing ship tracking...');
     
     let fixed = 0;
     let removed = 0;
@@ -4118,47 +4118,47 @@ function cleanupCombatChecks() {
     // 3. Nollaa combat tarkistukset
     triggerCombatCheck();
     
-    // console.log(`✅ [COMBAT-CLEANUP] Fixed ${fixed} ships, removed ${removed} invalid entries`);
+//     // console.log(`✅ [COMBAT-CLEANUP] Fixed ${fixed} ships, removed ${removed} invalid entries`);
 }
 
 window.debugShipyardAllocation = function() {
-    console.group('🏭 Shipyard Allocation Debug');
+     console.group('🏭 Shipyard Allocation Debug');
     
     ['level1', 'level2', 'level3', 'level4'].forEach(level => {
         const data = shipyardRingData[level];
-        console.group(`${level}:`);
-        console.log('Count:', data.count);
-        console.log('Allocations:');
+         console.group(`${level}:`);
+         console.log('Count:', data.count);
+         console.log('Allocations:');
         
         for (let i = 0; i < Math.max(5, data.count); i++) {
             const starId = data.starIds[i];
             if (starId) {
                 const star = starsById.get(starId);
                 const starName = star?.userData?.starData?.name || 'Unknown';
-                console.log(`  [${i}]: ${starName} (${starId})`);
+                 console.log(`  [${i}]: ${starName} (${starId})`);
             } else {
-                console.log(`  [${i}]: <empty>`);
+                 console.log(`  [${i}]: <empty>`);
             }
         }
-        console.groupEnd();
+         console.groupEnd();
     });
     
-    console.groupEnd();
+     console.groupEnd();
 };
 
 // Debug funktio alusten tarkistamiseen
 window.debugShips = function() {
-    console.group('🚢 Ship Debug Info');
+     console.group('🚢 Ship Debug Info');
     
     // 1. Tarkista InstancedMeshit
     Object.entries(SHIP_INSTANCED_MESHES).forEach(([type, mesh]) => {
-        console.group(`${type} InstancedMesh:`);
-         console.log('Count:', mesh.count);
-         console.log('Visible:', mesh.visible);
-         console.log('In scene:', scene.children.includes(mesh));
-         console.log('Position:', mesh.position);
-         console.log('Material visible:', mesh.material.visible);
-         console.log('Material opacity:', mesh.material.opacity);
+         console.group(`${type} InstancedMesh:`);
+          console.log('Count:', mesh.count);
+          console.log('Visible:', mesh.visible);
+          console.log('In scene:', scene.children.includes(mesh));
+          console.log('Position:', mesh.position);
+          console.log('Material visible:', mesh.material.visible);
+          console.log('Material opacity:', mesh.material.opacity);
         
         // Tarkista ensimmäinen matriisi
         if (mesh.instanceMatrix && mesh.count > 0) {
@@ -4168,26 +4168,26 @@ window.debugShips = function() {
             const quat = new THREE.Quaternion();
             const scale = new THREE.Vector3();
             mat.decompose(pos, quat, scale);
-             console.log('First instance position:', pos);
-             console.log('First instance scale:', scale);
+              console.log('First instance position:', pos);
+              console.log('First instance scale:', scale);
         }
         
         // Tarkista ensimmäinen väri
         if (mesh.instanceColor && mesh.count > 0) {
             const color = new THREE.Color();
             mesh.getColorAt(0, color);
-            // console.log('First instance color:', color);
+            console.log('First instance color:', color);
         }
         
-        console.groupEnd();
+         console.groupEnd();
     });
     
      //2. Tarkista virtuaaliset alukset
-     console.log('Virtual ships total:', shipsById.size);
+      console.log('Virtual ships total:', shipsById.size);
     
     // 3. Tarkista instanceData
     Object.entries(shipInstanceData).forEach(([type, data]) => {
-         console.log(`${type} instance data:`, {
+          console.log(`${type} instance data:`, {
             count: data.count,
             matrices: data.matrices.length,
             colors: data.colors.length,
@@ -4211,28 +4211,28 @@ window.debugShips = function() {
         testMesh.instanceMatrix.needsUpdate = true;
         testMesh.instanceColor.needsUpdate = true;
         
-         console.log('Created test ship at index:', testIndex);
-         console.log('New count:', testMesh.count);
+          console.log('Created test ship at index:', testIndex);
+          console.log('New count:', testMesh.count);
     }
-    console.groupEnd();
+     console.groupEnd();
     
-    console.groupEnd();
+     console.groupEnd();
 };
 
 
 // Debug shipyard rings
 window.debugShipyardRings = function() {
-    console.group('💍 Shipyard Rings Debug');
+     console.group('💍 Shipyard Rings Debug');
     
     Object.entries(SHIPYARD_RING_INSTANCES).forEach(([level, mesh]) => {
-        console.group(`${level}:`);
-        console.log('Count:', mesh.count);
-        console.log('Visible:', mesh.visible);
-        console.log('In scene:', scene.children.includes(mesh));
-        console.log('Material:', mesh.material);
-        console.log('Material visible:', mesh.material.visible);
-        console.log('Material opacity:', mesh.material.opacity);
-        console.log('Render order:', mesh.renderOrder);
+         console.group(`${level}:`);
+         console.log('Count:', mesh.count);
+         console.log('Visible:', mesh.visible);
+         console.log('In scene:', scene.children.includes(mesh));
+         console.log('Material:', mesh.material);
+         console.log('Material visible:', mesh.material.visible);
+         console.log('Material opacity:', mesh.material.opacity);
+         console.log('Render order:', mesh.renderOrder);
         
         if (mesh.count > 0) {
             // Tarkista ensimmäinen instanssi
@@ -4242,27 +4242,27 @@ window.debugShipyardRings = function() {
             const quat = new THREE.Quaternion();
             const scale = new THREE.Vector3();
             mat.decompose(pos, quat, scale);
-            console.log('First instance position:', pos);
-            console.log('First instance scale:', scale);
+             console.log('First instance position:', pos);
+             console.log('First instance scale:', scale);
         }
-        console.groupEnd();
+         console.groupEnd();
     });
     
-    console.log('\nShipyard ring data:');
+     console.log('\nShipyard ring data:');
     Object.entries(shipyardRingData).forEach(([level, data]) => {
-        console.log(`${level}: count=${data.count}`);
+         console.log(`${level}: count=${data.count}`);
     });
     
-    console.groupEnd();
+     console.groupEnd();
 };
 
 // Test function to manually create a ring
 window.testShipyardRing = function() {
-    console.log('🧪 Creating test ring...');
+     console.log('🧪 Creating test ring...');
     
     const mesh = SHIPYARD_RING_INSTANCES.level1;
     if (!mesh) {
-        console.error('No level1 mesh found!');
+         console.error('No level1 mesh found!');
         return;
     }
     
@@ -4278,9 +4278,9 @@ window.testShipyardRing = function() {
     mesh.instanceMatrix.needsUpdate = true;
     if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     
-    console.log('✅ Created test ring at index:', testIndex);
-    console.log('New count:', mesh.count);
-    console.log('Mesh visible:', mesh.visible);
+     console.log('✅ Created test ring at index:', testIndex);
+     console.log('New count:', mesh.count);
+     console.log('Mesh visible:', mesh.visible);
     
     // Force render
     if (renderer) renderer.render(scene, camera);
@@ -4370,13 +4370,13 @@ setInterval(() => {
     
     // Jos accuracy alle 90%, korjaa automaattisesti
     if (accuracy < 0.9) {
-        //console.log(`[AUTO-CLEANUP] Tracking accuracy low (${(accuracy * 100).toFixed(1)}%), running cleanup...`);
+//         //console.log(`[AUTO-CLEANUP] Tracking accuracy low (${(accuracy * 100).toFixed(1)}%), running cleanup...`);
         cleanupCombatChecks();
     }
     
     // Jos liian monta efektiä, siivoa
     if (combatEffects.size > 10 || starsToCheck.size > 50) {
-        //console.log(`[AUTO-CLEANUP] Too many effects/checks, running cleanup...`);
+//         //console.log(`[AUTO-CLEANUP] Too many effects/checks, running cleanup...`);
         cleanupCombatChecks();
     }
 }, 10000); // 10 sekuntia

@@ -335,7 +335,7 @@ class GameManager extends EventEmitter {
         minerals: 500
       };
     });
-    console.log('--- Correctly initialized resources for new game ---', JSON.stringify(this.state.resources, null, 2));
+//     console.log('--- Correctly initialized resources for new game ---', JSON.stringify(this.state.resources, null, 2));
  
     // Galactic Hubin alustus
     this.galacticHubs.clear(); // Varmuuden vuoksi tyhjennys
@@ -380,7 +380,7 @@ class GameManager extends EventEmitter {
       if (this._running) return;
       this._paused = false;
       this._running = true; // LISÄYS: Merkitään looppi aktiiviseksi.
-      console.log(`🎮 Game ${this.gameId} starting at ${this._speed}x speed.`);
+//       console.log(`🎮 Game ${this.gameId} starting at ${this._speed}x speed.`);
       this._loop();
     }
 
@@ -391,11 +391,11 @@ class GameManager extends EventEmitter {
         this.timeoutId = null;
       }
       this._paused = false;
-      console.log(`🛑 Game ${this.gameId} stopped.`);
+//       console.log(`🛑 Game ${this.gameId} stopped.`);
     }
     
     async pause() {
-      console.log(`⏸️ Pausing game ${this.gameId}.`);
+//       console.log(`⏸️ Pausing game ${this.gameId}.`);
       this._paused = true; // Tämä signaali estää KESKEN OLEVAA looppia ajastamasta uutta kierrosta
       
       // Tämä pysäyttää SEURAAVAKSI ajastetun kierroksen
@@ -409,7 +409,7 @@ class GameManager extends EventEmitter {
     resume() {
       if (!this._paused || !this._running) return;
       this._paused = false;
-      console.log(`▶️ Game ${this.gameId} resumed.`);
+//       console.log(`▶️ Game ${this.gameId} resumed.`);
       this._loop(); // Käynnistetään looppi uudelleen.
     }
     
@@ -428,9 +428,9 @@ class GameManager extends EventEmitter {
             await this.gameDoc.save();
             
          
-            console.log(`💾 Game state saved for ${this.gameId}`);
+//             console.log(`💾 Game state saved for ${this.gameId}`);
         } catch (err) {
-            console.error(`Failed to save game state:`, err);
+//             console.error(`Failed to save game state:`, err);
         }
     }
 
@@ -444,7 +444,7 @@ class GameManager extends EventEmitter {
     const sockets = await this.io.in(this.gameId.toString()).fetchSockets();
     
     if (sockets.length === 0) {
-      console.log(`⚠️  No players in game ${this.gameId}. Stopping game.`);
+//       console.log(`⚠️  No players in game ${this.gameId}. Stopping game.`);
       this.stop();
       
       // Ilmoita server.js:lle että peli pitää poistaa
@@ -519,7 +519,7 @@ async _loop() {
     
     // 7. Tallenna taustalla (EI await!)
     this._saveInBackground().catch(err => {
-        console.error('[SAVE-ERROR] Background save failed:', err);
+//         console.error('[SAVE-ERROR] Background save failed:', err);
     });
     
     // 8. Ajasta seuraava tick
@@ -564,12 +564,12 @@ async _saveInBackground() {
             promises.push(
                 star.save()
                     .then(() => {
-                        // console.log(`[SAVE] Star ${starId} saved`);
+//                         // console.log(`[SAVE] Star ${starId} saved`);
                     })
                     .catch(e => {
                         if (e.message.includes("Can't save() the same doc")) {
                         } else {
-                            console.error(`[BG-SAVE] Star ${starId}:`, e.message);
+//                             console.error(`[BG-SAVE] Star ${starId}:`, e.message);
                         }
                     })
             );
@@ -583,7 +583,7 @@ async _saveInBackground() {
             promises.push(
                 ship.save()
                     .then(() => {
-                        // console.log(`[SAVE] Ship ${shipId} saved`);
+//                         // console.log(`[SAVE] Ship ${shipId} saved`);
                     })
                     .catch(e => {
                         if (e.message.includes("No document found")) {
@@ -591,7 +591,7 @@ async _saveInBackground() {
                         } else if (e.message.includes("Can't save() the same doc")) {
                             // Rinnakkaistallennus - ignoroi
                         } else {
-                            console.error(`[BG-SAVE] Ship ${shipId}:`, e.message);
+//                             console.error(`[BG-SAVE] Ship ${shipId}:`, e.message);
                         }
                     })
             );
@@ -605,21 +605,21 @@ async _saveInBackground() {
             Ship.findByIdAndDelete(shipId)
                 .then(result => {
                     if (result) {
-                        // console.log(`[DELETE] Ship ${shipId} deleted`);
+//                         // console.log(`[DELETE] Ship ${shipId} deleted`);
                     }
                 })
                 .catch(e => {
                     if (e.message.includes("No document found")) {
                         // Jo poistettu - OK
                     } else {
-                        console.error(`[BG-SAVE] Delete ship ${shipId}:`, e.message);
+//                         console.error(`[BG-SAVE] Delete ship ${shipId}:`, e.message);
                     }
                 })
         );
     });
     
     if (promises.length > 0) {
-        // console.log(`[BG-SAVE] Saving ${promises.length} documents in background`);
+//         // console.log(`[BG-SAVE] Saving ${promises.length} documents in background`);
         await Promise.allSettled(promises); // Käytä allSettled, ei all
     }
 }
@@ -631,7 +631,7 @@ async _checkConquestStart(star, ships, diff) {
     const starOwnerId = star.ownerId?.toString();
     
     if (attackerId !== starOwnerId) {
-        //console.log(`[CONQUEST-START] Starting conquest of ${star.name}`);
+//         //console.log(`[CONQUEST-START] Starting conquest of ${star.name}`);
         
         star.isBeingConqueredBy = attackerId;
         star.conquestProgress = 0;
@@ -723,7 +723,7 @@ async _checkConquestStart(star, ships, diff) {
     job.timeLeft -= 1;
 
     // Debug – näet tikit terminaalissa
-    //console.log(`[TICK ${this._turn}] ${star.name.padEnd(10)} | `
+//     //console.log(`[TICK ${this._turn}] ${star.name.padEnd(10)} | `
     //  + `build=${job.type} | left=${job.timeLeft}`);
 
     // Valmis?
@@ -811,7 +811,7 @@ async _checkConquestStart(star, ships, diff) {
             maxHp       : stats.maxHp
         });
 
-        //console.log(`Created new ship: ID=${newShip._id}, type=${job.type}, owner=${star.ownerId}, hp=${stats.hp}/${stats.maxHp}`);
+//         //console.log(`Created new ship: ID=${newShip._id}, type=${job.type}, owner=${star.ownerId}, hp=${stats.hp}/${stats.maxHp}`);
 
         this.state.ships.push(newShip);
 
@@ -946,20 +946,20 @@ async _applyActions(actions) {
     if (act.action === "QUEUE_PLANETARY") {
       // Tarkistetaan, onko komennolla hintaa ja lähettäjää (eli onko se ihmispelaajan komento)
       if (act.cost && act.playerId) {
-        //console.log('--- DEBUG: Checking wallet state before payment ---');
-        //console.log('Entire resource state:', JSON.stringify(this.state.resources, null, 2));
-        //console.log('Checking for player ID:', act.playerId);
-        //console.log('Wallet found:', this.state.resources[act.playerId]);
-        //console.log('----------------------------------------------------');
+//         //console.log('--- DEBUG: Checking wallet state before payment ---');
+//         //console.log('Entire resource state:', JSON.stringify(this.state.resources, null, 2));
+//         //console.log('Checking for player ID:', act.playerId);
+//         //console.log('Wallet found:', this.state.resources[act.playerId]);
+//         //console.log('----------------------------------------------------');
         const playerWallet = this.state.resources[act.playerId];
         // Varmistetaan serverillä, että pelaajalla on varmasti varaa
         if (playerWallet && playerWallet.credits >= act.cost.credits && playerWallet.minerals >= act.cost.minerals) {
           playerWallet.credits -= act.cost.credits;
           playerWallet.minerals -= act.cost.minerals;
-          //console.log(`[SERVER-PAYMENT] Player ${act.playerId.slice(-4)} paid ${act.cost.credits}C for ${act.build.type}`);
+//           //console.log(`[SERVER-PAYMENT] Player ${act.playerId.slice(-4)} paid ${act.cost.credits}C for ${act.build.type}`);
         } else {
           // Jos ei ollutkaan varaa, perutaan toimenpide
-          //console.warn(`[SERVER-PAYMENT-CANCEL] Player ${act.playerId.slice(-4)} could not afford ${act.build.type}.`);
+//           //console.warn(`[SERVER-PAYMENT-CANCEL] Player ${act.playerId.slice(-4)} could not afford ${act.build.type}.`);
           continue; // Hypätään tämän actionin yli
         }
       }
@@ -984,18 +984,18 @@ async _applyActions(actions) {
     if (act.action === "QUEUE_SHIP") {
       // Käytetään TÄSMÄLLEEN SAMAA LOGIIKKAA kuin planeetoille
       if (act.cost && act.playerId) {
-        //console.log('--- DEBUG: Checking wallet state before payment ---');
-        //console.log('Entire resource state:', JSON.stringify(this.state.resources, null, 2));
-        //console.log('Checking for player ID:', act.playerId);
-        //console.log('Wallet found:', this.state.resources[act.playerId]);
-        //console.log('----------------------------------------------------');
+//         //console.log('--- DEBUG: Checking wallet state before payment ---');
+//         //console.log('Entire resource state:', JSON.stringify(this.state.resources, null, 2));
+//         //console.log('Checking for player ID:', act.playerId);
+//         //console.log('Wallet found:', this.state.resources[act.playerId]);
+//         //console.log('----------------------------------------------------');
         const playerWallet = this.state.resources[act.playerId];
         if (playerWallet && playerWallet.credits >= act.cost.credits && playerWallet.minerals >= act.cost.minerals) {
           playerWallet.credits -= act.cost.credits;
           playerWallet.minerals -= act.cost.minerals;
-          //console.log(`[SERVER-PAYMENT] Player ${act.playerId.slice(-4)} paid ${act.cost.credits}C for ${act.build.type}`);
+//           //console.log(`[SERVER-PAYMENT] Player ${act.playerId.slice(-4)} paid ${act.cost.credits}C for ${act.build.type}`);
         //} else {
-          //console.warn(`[SERVER-PAYMENT-CANCEL] Player ${act.playerId.slice(-4)} could not afford ${act.build.type}.`);
+//           //console.warn(`[SERVER-PAYMENT-CANCEL] Player ${act.playerId.slice(-4)} could not afford ${act.build.type}.`);
           //continue; // Hypätään yli, jos ei varaa
         }
       }
@@ -1018,17 +1018,17 @@ async _applyActions(actions) {
 
     /* --------- MOVEMENT ---------- */
     if (act.action === "MOVE_SHIP") {
-        //console.log(`Processing MOVE_SHIP: ${act.shipId} -> ${act.toStarId}`);
+//         //console.log(`Processing MOVE_SHIP: ${act.shipId} -> ${act.toStarId}`);
         
         const sh = this._ship(act.shipId);
         if (!sh) {
-            console.warn(`Ship ${act.shipId} not found`);
+//             console.warn(`Ship ${act.shipId} not found`);
             continue;
         }
         
         const toStar = this._star(act.toStarId);
         if (!toStar) {
-            console.warn(`Target star ${act.toStarId} not found`);
+//             console.warn(`Target star ${act.toStarId} not found`);
             continue;
         }
         
@@ -1055,7 +1055,7 @@ async _applyActions(actions) {
         
         // Älä liiku jos samaan tähteen
         if (fromStar && fromStar._id.equals(toStar._id)) {
-            console.warn(`Ship ${sh._id} ordered to same star – ignoring`);
+//             console.warn(`Ship ${sh._id} ordered to same star – ignoring`);
             continue;
         }
         
@@ -1118,10 +1118,10 @@ async _applyActions(actions) {
         // Tämä on visuaalinen notifikaatio - tarkista vain että data on synkassa
         const sh = this._ship(act.shipId);
         if (sh && sh.state !== 'orbiting') {
-            console.warn(`[SYNC-ERROR] Ship ${act.shipId} not in orbiting state after arrival!`);
+//             console.warn(`[SYNC-ERROR] Ship ${act.shipId} not in orbiting state after arrival!`);
         }
         
-        //console.log(`[VISUAL-ONLY] SHIP_ARRIVED notification for ship ${act.shipId}`);
+//         //console.log(`[VISUAL-ONLY] SHIP_ARRIVED notification for ship ${act.shipId}`);
         continue;
     }
   }
@@ -1324,7 +1324,7 @@ async _advanceConquest(diff) {
         
         // Jos puolustajia, keskeytä valloitus
         if (defendingShips.length > 0) {  
-            //console.log(`Conquest of ${star.name} halted - defenders present`);
+//             //console.log(`Conquest of ${star.name} halted - defenders present`);
             star.isBeingConqueredBy = null;
             star.conquestProgress = 0;
             star.markModified('isBeingConqueredBy');
@@ -1375,7 +1375,7 @@ async _advanceConquest(diff) {
                     const destroyed = oldMines === 1 ? 1 : 
                         Math.max(1, Math.floor(Math.random() * maxDestroy) + 1);
                     star.mines = Math.max(0, oldMines - destroyed);
-                    //console.log(`${destroyed} mines destroyed during conquest`);
+//                     //console.log(`${destroyed} mines destroyed during conquest`);
                 }
                 
                 // Nollaa jonotkin
@@ -1416,7 +1416,7 @@ async _advanceConquest(diff) {
                     }
                 });
                 
-                //console.log(`Star ${star.name} conquered by ${conquerorId}`);
+//                 //console.log(`Star ${star.name} conquered by ${conquerorId}`);
             } else {
                 // Valloitus jatkuu
                 diff.push({
@@ -1641,7 +1641,7 @@ async _checkConquestStart(star, shipsAtStar, diff) {
 
     // Aloita valloitus, jos hyökkääjä ei omista tähteä
     if (attackerId !== starOwnerId) {
-        console.log(`[CONQUEST-START] Starting conquest of ${star.name} by ${attackerId}`);
+//         console.log(`[CONQUEST-START] Starting conquest of ${star.name} by ${attackerId}`);
         
         star.isBeingConqueredBy = attackerId;
         star.conquestProgress = 0;
@@ -1803,7 +1803,7 @@ async _resolvePDOnlyBattle(star, attackers, diff) {
 async _destroyShip(shipId, diff) {
     const shipIndex = this.state.ships.findIndex(s => s._id.toString() === shipId.toString());
     if (shipIndex === -1) {
-        console.warn(`[DESTROY] Ship ${shipId} not found in state`);
+//         console.warn(`[DESTROY] Ship ${shipId} not found in state`);
         return;
     }
 
@@ -1847,7 +1847,7 @@ async _destroyShip(shipId, diff) {
         const now = Date.now();
         if (now - this._lastDiffSent >= this.DIFF_SEND_INTERVAL) {
             if (this._diffBuffer.length > 0) {
-                //console.log(`[SEND-BATCH] ${this._diffBuffer.length} diffs`);
+//                 //console.log(`[SEND-BATCH] ${this._diffBuffer.length} diffs`);
                 this.io.to(this.gameId.toString()).emit("game_diff", this._diffBuffer);
                 this._diffBuffer = [];
                 this._lastDiffSent = now;
