@@ -26,12 +26,12 @@ import {
 let audioContextStarted = false;
 let masterVolume;
 let ambientHum, ambientFilter, ambientPanner;
-let synthButtonClick;             // <-- LISÄÄ TÄMÄ
-let synthButtonHoverEffect;       // <-- LISÄÄ TÄMÄ
-let lastButtonClickTime = 0;      // <-- LISÄÄ TÄMÄ
-let lastButtonHoverTime = 0;      // <-- LISÄÄ TÄMÄ
-const BUTTON_CLICK_COOLDOWN = 0.05; // <-- LISÄÄ TÄMÄ
-const BUTTON_HOVER_COOLDOWN = 0.03; // <-- LISÄÄ TÄMÄ
+let synthButtonClick;             
+let synthButtonHoverEffect;       
+let lastButtonClickTime = 0;      
+let lastButtonHoverTime = 0;      
+const BUTTON_CLICK_COOLDOWN = 0.05; 
+const BUTTON_HOVER_COOLDOWN = 0.03; 
 
 
 /* ========================================================================== */
@@ -70,9 +70,9 @@ const INFRA_LIMITS = {
 /* ========================================================================== */
 
 let gameState = null;
-let controlGroups = {}; // <-- TÄMÄ
-let lastGroupKey = null; // <-- TÄMÄ
-let lastGroupKeyTime = 0; // <-- TÄMÄ
+let controlGroups = {}; // 
+let lastGroupKey = null; // 
+let lastGroupKeyTime = 0; // 
 const DOUBLE_PRESS_THRESHOLD = 350; // ms
 let myPlayerId = null;
 let playerResources = { credits: 1000, minerals: 500 };
@@ -270,7 +270,7 @@ function setupEventListeners() {
     buildDestroyerButton.addEventListener('click', (e) => {playButtonClickSound();handleBuildShip(e.target.dataset.type)});
     buildCruiserButton.addEventListener('click', (e) => {playButtonClickSound();handleBuildShip(e.target.dataset.type)});
     buildSlipstreamFrigateButton.addEventListener('click', (e) => {playButtonClickSound();handleBuildShip(e.target.dataset.type)});
-    buildGalacticHubButton.addEventListener('click', () => {playButtonClickSound();handleBuildGalacticHub()}); // <-- LISÄÄ TÄMÄ
+    buildGalacticHubButton.addEventListener('click', () => {playButtonClickSound();handleBuildGalacticHub()}); 
 
     
     // Star selection events from scene
@@ -305,14 +305,14 @@ function setupEventListeners() {
     window.addEventListener('shipArrived', (event) => {
         const command = {
             ...event.detail,
-            gameId: currentGameId  // LISÄÄ TÄMÄ!
+            gameId: currentGameId  
     };
         socket.emit('player_command', command);
     });
 
 // Keyboard events
 document.addEventListener('keydown', (event) => {
-    // --- UUSI ESC-NÄPPÄIMEN LOGIIKKA ---
+    // --- ESC-NÄPPÄIMEN LOGIIKKA ---
     if (event.key === 'Escape') {
         // Jos olemme pelitilassa, siirry paussivalikkoon (eli päävalikkoon)
         if (uiState === 'playing') {
@@ -323,7 +323,7 @@ document.addEventListener('keydown', (event) => {
         }
         // Jos olemme jo valikossa (pausella), palataan peliin
         else if (uiState === 'paused') {
-            handleResumeGame(); // Tämä funktio hoitaa jo kaiken tarvittavan
+            handleResumeGame(); 
         }
     }
     
@@ -387,7 +387,7 @@ document.addEventListener('keydown', (event) => {
         }
     }
 
-    // Lisää F5 näppäin manuaaliseen siivoukseen:
+    // F5 näppäin manuaaliseen siivoukseen:
     else if (event.key === 'F5') {
         event.preventDefault();
         console.log('🧹 Running manual cleanup...');
@@ -414,7 +414,7 @@ document.addEventListener('keydown', (event) => {
         }
     }
 
-    // --- UUSI VÄLILYÖNNIN LOGIIKKA ---
+    // --- VÄLILYÖNNIN LOGIIKKA ---
     // Tauottaa pelin, mutta pitää pelinäkymän esillä
     else if (event.code === 'Space') {
         // Toimii vain, jos olemme aktiivisessa pelinäkymässä
@@ -884,7 +884,6 @@ function pauseGame() {
 }
 
 function updatePauseUI() {
-    // 1. Lisää/poista yleinen 'paused'-luokka body-elementistä (sinun hyvä ideasi)
     if (isPaused) {
         document.body.classList.add('paused');
     } else {
@@ -909,10 +908,10 @@ function updatePauseUI() {
         pauseIndicator.textContent = 'PAUSED';
         pauseIndicator.style.cssText = `
             position: fixed;
-            top: 20px; /* MUUTOS: Siirretään 20px yläreunasta */
+            top: 20px; 
             left: 50%;
-            transform: translateX(-50%); /* MUUTOS: Keskitetään vain sivusuunnassa */
-            font-size: 64px; /* PIENENNYS: Pienennetään hieman fonttia */
+            transform: translateX(-50%); 
+            font-size: 64px; 
             font-weight: bold;
             color: rgba(255, 255, 255, 0.6);
             pointer-events: none;
@@ -1115,7 +1114,7 @@ function updateButtonStates(starData) {
     const queuedInfra = planetaryQueue.filter(item => 
         item.type.startsWith('Infrastructure')).length;
     
-    // --- Infrastructure & Galactic Hub Logic (Lopullinen, korjattu versio) ---
+    // --- Infrastructure & Galactic Hub Logic ---
     const hasInfraInQueue = queuedInfra > 0;
     const hasHubInQueue = planetaryQueue.some(item => item.type === 'Galactic Hub');
 
@@ -1126,9 +1125,21 @@ function updateButtonStates(starData) {
 
         const cost = getInfrastructureCost(starData.infrastructureLevel);
         const canAffordIt = canAfford(cost);
+        const nextLvl = starData.infrastructureLevel + 1;
+
         upgradeInfrastructureButton.disabled = !canAffordIt || hasInfraInQueue;
-        // ... (title-tekstit kuten ennenkin)
-        upgradeInfrastructureButton.querySelector('span').textContent = 'Upgrade Infrastructure';
+        
+        // --- tooltip-logiikka ---
+        if (hasInfraInQueue) {
+            upgradeInfrastructureButton.title = 'Infrastructure upgrade already in queue';
+        } else if (!canAffordIt) {
+            upgradeInfrastructureButton.title = `Insufficient resources (need ${cost.credits}C, ${cost.minerals}M)`;
+        } else {
+            upgradeInfrastructureButton.title = `Upgrade to Infrastructure Level ${nextLvl}`;
+        }
+        
+        // --- dynaaminen hinta nappiin ---
+        upgradeInfrastructureButton.querySelector('span').textContent = `Upgrade Infra (${cost.credits}C, ${cost.minerals}M)`;
     } 
     // Tapaus 2: Infra on täynnä. Tarkistetaan Hubin tila.
     else {
@@ -1146,25 +1157,28 @@ function updateButtonStates(starData) {
             upgradeInfrastructureButton.style.display = 'none';
             buildGalacticHubButton.style.display = 'block';
 
-            // Jos Hub on jonossa, disabloidaan nappi (mutta pidetään se näkyvissä progress baria varten).
             if (hasHubInQueue) {
                 buildGalacticHubButton.disabled = true;
                 buildGalacticHubButton.title = 'Galactic Hub is already in the construction queue.';
-            } 
-            // Jos Hubia ei ole jonossa, tarkistetaan resurssit.
-            else {
+                // Näytetään teksti, vaikka on jonossa
+                buildGalacticHubButton.querySelector('span').textContent = 'Building Hub...';
+            } else {
                 const cost = { credits: 1000, minerals: 1000 };
                 const canAffordIt = canAfford(cost);
                 buildGalacticHubButton.disabled = !canAffordIt;
-                buildGalacticHubButton.title = canAffordIt ? 'Build a Galactic Hub' : 'Insufficient resources';
+                buildGalacticHubButton.title = canAffordIt ? 'Build a Galactic Hub' : `Insufficient resources (need ${cost.credits}C, ${cost.minerals}M)`;
+                
+                // --- hinta nappiin ---
+                buildGalacticHubButton.querySelector('span').textContent = `Build Galactic Hub (${cost.credits}C, ${cost.minerals}M)`;
             }
         }
     }
 
+
     
     // Shipyard buttons
     if (buildShipyardButton && buildShipyardButton.style.display !== 'none') {
-        const cost = { credits: 150, minerals: 100 };
+        const cost = { credits: 150, minerals: 100, time: 20 }; // Perushinta
         const canAffordIt = canAfford(cost);
         const totalShipyards = starData.shipyardLevel + queuedShipyard;
         const canBuildMore = totalShipyards < currentInfraLimits.maxShipyard;
@@ -1174,10 +1188,12 @@ function updateButtonStates(starData) {
         if (!canBuildMore) {
             buildShipyardButton.title = `Shipyard limit reached (${totalShipyards}/${currentInfraLimits.maxShipyard}) - Upgrade infrastructure first`;
         } else if (!canAffordIt) {
-            buildShipyardButton.title = 'Insufficient resources (need 150C, 100M)';
+            buildShipyardButton.title = `Insufficient resources (need ${cost.credits}C, ${cost.minerals}M)`;
         } else {
             buildShipyardButton.title = 'Build a shipyard to construct ships';
         }
+        
+        buildShipyardButton.querySelector('span').textContent = `Build Shipyard (${cost.credits}C, ${cost.minerals}M)`;
     }
     
     if (upgradeShipyardButton && upgradeShipyardButton.style.display !== 'none') {
@@ -1189,6 +1205,7 @@ function updateButtonStates(starData) {
         
         upgradeShipyardButton.disabled = !canAffordIt || !canUpgrade;
         
+        // Tooltip-logiikka
         if (queuedShipyard > 0) {
             upgradeShipyardButton.title = 'Shipyard upgrade already in queue';
         } else if (nextLevel > currentInfraLimits.maxShipyard) {
@@ -1197,6 +1214,15 @@ function updateButtonStates(starData) {
             upgradeShipyardButton.title = `Insufficient resources (need ${cost.credits}C, ${cost.minerals}M)`;
         } else {
             upgradeShipyardButton.title = `Upgrade to Shipyard Level ${nextLevel}`;
+        }
+        
+        const span = upgradeShipyardButton.querySelector('span');
+        if (queuedShipyard > 0) {
+            span.textContent = 'Upgrading…';
+        } else if (!canUpgrade && nextLevel > currentInfraLimits.maxShipyard) {
+            span.textContent = `Shipyard at Max (Lvl ${starData.shipyardLevel})`;
+        } else {
+            span.textContent = `Upgrade Shipyard (${cost.credits}C, ${cost.minerals}M)`;
         }
     }
     
@@ -1889,14 +1915,12 @@ function updateUIFromDiff(diff) {
                         ownerId: action.ownerId,
                         parentStarId: action.starId, // Tallenna tähti, josta se syntyi
                         state: 'orbiting'
-                        // Voit lisätä muita ominaisuuksia tarpeen mukaan
                     };
                     gameState.ships.push(newShipData);
                     //console.log(`[CLIENT-STATE] Lisätty uusi alus ${action.shipId} paikalliseen gameStateen. Aluksia yhteensä: ${gameState.ships.length}`);
                 }
 
                 // Tämä alla oleva logiikka päivittää planeetan rakennusjonon,
-                // se voi jäädä ennalleen.
                 if (gameState && action.starData) {
                     const starIndex = gameState.stars.findIndex(s => s._id === action.starId);
                     if (starIndex !== -1) {
@@ -2037,27 +2061,28 @@ function updateUIFromDiff(diff) {
 /* ========================================================================== */
 
 function getInfrastructureCost(currentLevel) {
-    // Simplified cost calculation matching backend logic
-    const baseCost = 150;
+    // Käytetään samaa logiikkaa kuin telakan päivityksessä
+    const baseCost = { credits: 150, minerals: 100, time: 30 };
     const factor = 1 + 0.3 * currentLevel;
     return {
-        credits: Math.round(baseCost * factor),
-        minerals: Math.round(baseCost * 0.67 * factor),
-        time: Math.round(40 * factor)
+        nextLevel: currentLevel + 1,
+        credits: Math.round(baseCost.credits * factor),
+        minerals: Math.round(baseCost.minerals * factor),
+        time: Math.round(baseCost.time * factor)
     };
 }
 
 function getShipyardCost(currentLevel) {
-    // Simplified cost calculation matching backend logic
     if (currentLevel === 0) {
-        return { credits: 150, minerals: 100, time: 20 };
+        return { nextLevel: 1, credits: 150, minerals: 100, time: 20 };
     }
-    const baseCost = 150;
-    const factor = 1 + 0.3 * currentLevel;
+    const baseCost = { credits: 250, minerals: 200, time: 40 };
+    const factor = 1 + 0.3 * (currentLevel - 1);
     return {
-        credits: Math.round(baseCost * factor),
-        minerals: Math.round(baseCost * 0.67 * factor),
-        time: Math.round(40 * factor)
+        nextLevel: currentLevel + 1,
+        credits: Math.round(baseCost.credits * factor),
+        minerals: Math.round(baseCost.minerals * factor),
+        time: Math.round(baseCost.time * factor)
     };
 }
 

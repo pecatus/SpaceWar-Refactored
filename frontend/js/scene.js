@@ -75,7 +75,6 @@ const shipInstanceData = {
     'Slipstream Frigate': { count: 0, matrices: [], colors: [], ids: new Map() }
 };
 
-// LISÄÄ TÄMÄ UUSI MUUTTUJA:
 const freeInstanceSlots = {
     Fighter: new Set(),
     Destroyer: new Set(),
@@ -133,7 +132,7 @@ const mouse = new THREE.Vector2();
 const explosions = [];
 const slipstreamSparkles = [];
 
-// Lisää taisteluefektien hallinta
+// taisteluefektien hallinta
 const combatEffects = new Map();
 const activeCombatStars = new Set(); // Tähdet joissa on aktiivinen taistelu
 const starsToCheck = new Set(); // Tähdet joita pitää tarkistaa
@@ -153,11 +152,11 @@ let fpsStats = {
     lastFrameTime: performance.now()
 };
 
-let frameSkipCounter = 0; // LISÄÄ TÄMÄ RIVI
+let frameSkipCounter = 0; 
 
 let performanceMonitor = {
     lastCleanup: Date.now(),
-    cleanupInterval: 5000, // MUUTOS: 30s -> 5s
+    cleanupInterval: 5000, 
     shipCount: 0,
     effectCount: 0
 };
@@ -793,7 +792,7 @@ function initShipInstances() {
             color: 0xffffff,
             emissive: 0x000000,
             emissiveIntensity: 0.3,
-            metalness: 0.3,  // LISÄYS: Hieman metallisuutta
+            metalness: 0.3,  
             roughness: 0.4
         });
         
@@ -807,7 +806,6 @@ function initShipInstances() {
         
         instancedMesh.instanceColor = new THREE.InstancedBufferAttribute(colors, 3);
         
-        // LISÄÄ TÄMÄ DEBUG
         // console.log(`Adding ${type} to scene...`);
         scene.add(instancedMesh);
         //console.log(`${type} added to scene:`, scene.children.includes(instancedMesh));
@@ -1429,7 +1427,6 @@ function deselectShip(virtualShip) {
 
 function deselectAllShips() {
     // Käy läpi kaikki tällä hetkellä valitut alukset ja kutsu deselectShip-funktiota
-    // Tämä on nyt turvallista, koska deselectShip ei muokkaa enää listaa.
     selectedShips.forEach(virtualShip => {
         deselectShip(virtualShip);
     });
@@ -1662,7 +1659,7 @@ function updateAllStarVisuals() {
         }
     });
 
-    // UUSI OSA: Nollaa starlanejen läpinäkyvyys
+    // Nollaa starlanejen läpinäkyvyys
     starConnections.forEach(line => {
         line.material.opacity = STAR_LANE_DEFAULT_OPACITY;
     });
@@ -1681,7 +1678,7 @@ function updateAllStarVisuals() {
                     hoveredMesh.userData.glowSprite.material.opacity = STAR_GLOW_HOVER_OPACITY;
                     // ... (skaalauslogiikka pysyy ennallaan) ...
                 }
-                // UUSI OSA: Korosta hoveroidun tähden starlanet
+                // Korosta hoveroidun tähden starlanet
                 starConnections.forEach(line => {
                     if (line.userData.star1Id === hoveredStar._id || line.userData.star2Id === hoveredStar._id) {
                         line.material.opacity = STAR_LANE_HOVER_OPACITY;
@@ -1700,7 +1697,7 @@ function updateAllStarVisuals() {
                 selectedMesh.userData.glowSprite.material.opacity = STAR_GLOW_SELECTED_OPACITY;
                 // ... (skaalauslogiikka pysyy ennallaan) ...
             }
-            // UUSI OSA: Korosta valitun tähden starlanet
+            // Korosta valitun tähden starlanet
             starConnections.forEach(line => {
                 if (line.userData.star1Id === selectedStar._id || line.userData.star2Id === selectedStar._id) {
                     line.material.opacity = STAR_LANE_SELECTED_OPACITY;
@@ -1877,10 +1874,9 @@ export function buildFromSnapshot(snap) {
         createNebulaSprites();
     }
 
-    // --- UUSI: TYHJENNÄ HAKURAKENNE ---
+    // --- TYHJENNÄ HAKURAKENNE ---
     shipsByStarClient.clear();
     //console.log("[TRACKING] Cleared ship tracking structure");
-    // --- PÄIVITYS PÄÄTTYY ---
 
     if (snap.stars) {
         spawnStars(snap.stars);
@@ -1890,17 +1886,14 @@ export function buildFromSnapshot(snap) {
     if (snap.ships) {
         spawnShips(snap.ships);
 
-        // --- UUSI: VARMISTA ETTÄ KAIKKI ALUKSET ON HAKURAKENTEESSA ---
+        // --- VARMISTA ETTÄ KAIKKI ALUKSET ON HAKURAKENTEESSA ---
         //console.log(`[TRACKING] Initialized tracking for ${shipsById.size} ships`);
         let trackedCount = 0;
         shipsByStarClient.forEach((ships, starId) => {
             trackedCount += ships.size;
         });
         //console.log(`[TRACKING] Total tracked ships: ${trackedCount}`);
-        // --- PÄIVITYS PÄÄTTYY ---
-    
     }
-    
     //console.log("Scene built from snapshot");
 }
 
@@ -2022,7 +2015,6 @@ function createStarlanes(starList) {
 }
 
 
-// 2. KORJAA spawnShips - count pitää päivittää oikein
 function spawnShips(shipList) {
     //console.log('🚀 spawnShips called with', shipList.length, 'ships');
     // Debug: tarkista että meshit ovat olemassa
@@ -2261,7 +2253,6 @@ function updateDefenseRings(starData, starMesh) {
 
         defenseRingData.ringIndicesByStar.set(starData._id, newIndices);
         
-        // --- UUSI, TEHOKKAAMPI .count-PÄIVITYS TÄHÄN ---
         // Kun kaikki renkaat on lisätty, laske KERRAN suurin käytössä oleva indeksi
         let maxIndex = -1;
         for (let i = 0; i < defenseRingData.starIds.length; i++) {
@@ -2270,8 +2261,6 @@ function updateDefenseRings(starData, starMesh) {
             }
         }
         DEFENSE_RING_INSTANCE.count = maxIndex + 1;
-        // --- PÄIVITYS PÄÄTTYY ---
-        
         DEFENSE_RING_INSTANCE.instanceMatrix.needsUpdate = true;
         DEFENSE_RING_INSTANCE.instanceColor.needsUpdate = true;
     }
@@ -2295,8 +2284,8 @@ function removeOldIndicators(starData, preserveDefenseRings = false, preserveShi
     if (starData.mineIndicatorMeshes) {
         starData.mineIndicatorMeshes.forEach(m => {
             scene.remove(m);
-            if (m.material) m.material.dispose(); // LISÄÄ
-            if (m.geometry) m.geometry.dispose(); // LISÄÄ
+            if (m.material) m.material.dispose(); 
+            if (m.geometry) m.geometry.dispose(); 
         });
         starData.mineIndicatorMeshes = [];
     }
@@ -2305,8 +2294,8 @@ function removeOldIndicators(starData, preserveDefenseRings = false, preserveShi
     if (starData.populationIndicatorMeshes) {
         starData.populationIndicatorMeshes.forEach(p => {
             scene.remove(p);
-            if (p.material) p.material.dispose(); // LISÄÄ
-            if (p.geometry) p.geometry.dispose(); // LISÄÄ
+            if (p.material) p.material.dispose(); 
+            if (p.geometry) p.geometry.dispose(); 
         });
         starData.populationIndicatorMeshes = [];
     }
@@ -2357,12 +2346,11 @@ function removeOldIndicators(starData, preserveDefenseRings = false, preserveShi
             dummy.updateMatrix();
             instancedMesh.setMatrixAt(ringRef.index, dummy.matrix);
             
-            // TÄRKEÄ: Nollaa metadata OIKEIN
+            // Nollaa metadata 
             data.rotations[ringRef.index] = null;
             data.speeds[ringRef.index] = null;
-            data.starIds[ringRef.index] = null;  // TÄMÄ ON KRIITTINEN
+            data.starIds[ringRef.index] = null;  
             
-            // Älä muuta count-arvoa tässä
             instancedMesh.instanceMatrix.needsUpdate = true;
         });
         starData.shipyardRingInstances = [];
@@ -2388,7 +2376,7 @@ function updateMineIndicators(starData, starMesh) {
     const itemsPerRow = 4;
     const spacing = INDICATOR_SPRITE_SCALE * 0.9;
     
-    // KORJAUS: Poista defenseLevel vaikutus
+    // Poista defenseLevel vaikutus
     const yOffset = starRadiusScaled + INDICATOR_SPRITE_SCALE * 1.2;
     
     const xBaseOffset = starRadiusScaled * 0.6 + INDICATOR_SPRITE_SCALE * 0.4;
@@ -2431,7 +2419,7 @@ function updatePopulationIndicators(starData, starMesh) {
     const itemsPerRow = 4;
     const spacing = INDICATOR_SPRITE_SCALE * 0.9;
     
-    // KORJAUS: Poista defenseLevel vaikutus
+    // Poista defenseLevel vaikutus
     const yOffset = starRadiusScaled + INDICATOR_SPRITE_SCALE * 1.2;
     
     const xBaseOffset = -(starRadiusScaled * 0.6 + INDICATOR_SPRITE_SCALE * 0.4);
@@ -2635,8 +2623,7 @@ function getIndicatorColor(ownerId) {
     return new THREE.Color(hexColor);
 }
 
-// Lisää animate looppiin shipyard-renkaiden pyöritys
-// (updateOrbitingShips funktion jälkeen):
+// Shipyard -ringien renkaiden pyöritys
 function updateShipyardRings(delta) {
     const dummy = new THREE.Object3D();
     
@@ -2722,7 +2709,6 @@ export function applyDiff(diffArr = []) {
                 // 2. Käsittele KAIKKI MUUT indikaattorit yhdellä kutsulla
                 const otherIndicatorTypes = ['Mine', 'Shipyard', 'Infrastructure'];
                 if (otherIndicatorTypes.some(type => act.type.startsWith(type))) {
-                    // Tämä funktio päivittää kaiken PAITSI puolustusrenkaat
                     updateStarIndicators(star, starMesh);
                 }
                 
@@ -2798,7 +2784,7 @@ export function applyDiff(diffArr = []) {
                     //console.log(`[SHIP-TRACKING] Added ship ${act.shipId} to star ${starId}`);
                 }
                 
-                // LISÄÄ TÄMÄ: Merkitse tähti tarkistettavaksi combatille
+                // Merkitse tähti tarkistettavaksi combatille
                 markStarForCombatCheck(act.starId);
                 
                 //console.log(`[SHIP_SPAWNED] Ship ${act.shipId} spawned at star ${act.starId}`);
@@ -2830,10 +2816,10 @@ export function applyDiff(diffArr = []) {
                 sd.plannedOrbitRadius = 15 + Math.random() * 6;
                 sd.plannedOrbitAngle = Math.random() * Math.PI * 2;
 
-                // LISÄÄ TÄMÄ: Nollaa validDeparture aina kun alus alkaa liikkua
+                // Nollaa validDeparture aina kun alus alkaa liikkua
                 mesh.userData.validDeparture = false;
 
-                // LISÄÄ TÄMÄ: Jos alus on jo kiertoradalla, aseta lähtöpositio heti
+                // Jos alus on jo kiertoradalla, aseta lähtöpositio heti
                 const depStar = starsById.get(sd.departureStarId);
                 if (depStar && mesh.userData.orbitRadius) {
                     // Alus on kiertoradalla, käytä nykyistä orbitointipositiota
@@ -2961,7 +2947,7 @@ export function applyDiff(diffArr = []) {
                     shipData.ticksToArrive = act.ticksToArrive;
                 }
 
-                // 2. LISÄÄ LIPPU JA AJASTIN aluksen userData-olioon
+                // 2. LIPPU JA AJASTIN aluksen userData-olioon
                 // Tämä kertoo animaatioloopille, että nopeutta pitää kasvattaa.
                 virtualShip.userData.inSlipstream = true;
                 virtualShip.userData.slipstreamTimer = 0.5; // Efekti pysyy päällä
@@ -3054,12 +3040,12 @@ export function applyDiff(diffArr = []) {
                     instancedMesh.setMatrixAt(instanceIndex, dummy.matrix);
                     instancedMesh.instanceMatrix.needsUpdate = true;
                     
-                    // LISÄÄ TÄMÄ: Vapauta slotti uudelleenkäyttöön
+                    // Vapauta slotti uudelleenkäyttöön
                     freeInstanceSlots[type].add(instanceIndex);
                     console.log(`Freed slot ${instanceIndex} for ${type}, now ${freeInstanceSlots[type].size} free slots`);
                 }
                 
-                // UUTTA: Siivoa myös kupla pois, jos se on olemassa
+                // Siivoa myös kupla pois, jos se on olemassa
                 if (virtualShip.userData.specialEffectMesh) {
                     const bubble = virtualShip.userData.specialEffectMesh;
                     scene.remove(bubble);
@@ -3310,7 +3296,7 @@ function checkForCombatSituations(delta) {
     if (now - lastCombatCheck < COMBAT_CHECK_INTERVAL) return;   // aja 4× sekunnissa
     lastCombatCheck = now;
 
-    // --- LISÄÄ SUORITUSKYVYN MITTAUS ---
+    // --- SUORITUSKYVYN MITTAUS ---
     const startTime = performance.now();
     let starsChecked = 0;
     let totalShipsProcessed = 0;
@@ -3397,7 +3383,7 @@ function checkForCombatSituations(delta) {
         }
     });
 
-    // --- LISÄÄ LOPPUUN MITTAUSRAPORTTI ---
+    // --- LOPPUUN MITTAUSRAPORTTI ---
     const endTime = performance.now();
     const duration = endTime - startTime;
     
@@ -3513,7 +3499,7 @@ function updateOrbitingShips(delta) {
                 virtualShip.userData.specialEffectMesh.position.copy(virtualShip.position);
             }
         }
-        // MOVING SHIPS - KOKO KORJATTU LOHKO
+        // MOVING SHIPS
         else if (shipData.state === 'moving' && shipData.targetStarId) {
             
             // Vaihe 1: Hae kohteet ja varmista, että ne ovat olemassa
@@ -3588,7 +3574,7 @@ function updateOrbitingShips(delta) {
                     virtualShip.userData.specialEffectMesh.position.copy(virtualShip.position);
                 }
                 
-                // Lisää päivitys eräkäsittelyyn (tämä on olemassa olevaa koodia)
+                // Lisää päivitys eräkäsittelyyn 
                 updatesByType[type].push({
                     index: virtualShip.userData.instanceIndex,
                     position: virtualShip.position.clone(),
@@ -3596,7 +3582,7 @@ function updateOrbitingShips(delta) {
                 });
             }
             else {
-                // Saapumislogiikka (tämä on olemassa olevaa koodia)
+                // Saapumislogiikka 
                 if (!shipData.predictedArrival) {
                     shipData.predictedArrival = true;
                     
@@ -3790,9 +3776,6 @@ function createConquestRing(starMesh, color = 0xffa500) {
  * Siivoaa koko scenen vanhan pelin objekteista.
  * Poistaa meshit, vapauttaa geometriat & materiaalit ja tyhjentää tilataulukot.
  */
-
-
-
 export function cleanupScene() {
     stopAnimateLoop();
     // console.log('[CLEANUP] Siivotaan vanhan pelin 3D-objektit...');
@@ -3825,6 +3808,19 @@ export function cleanupScene() {
     Object.keys(freeInstanceSlots).forEach(type => {
         freeInstanceSlots[type].clear();
     });
+
+    
+    // Siivoa Slipstream Frigate -kuplat ja muut mahdolliset alusten erikoisefektit
+    shipsById.forEach(virtualShip => {
+        if (virtualShip.userData.specialEffectMesh) {
+            const bubble = virtualShip.userData.specialEffectMesh;
+            scene.remove(bubble);
+            // Vapauta geometria ja materiaali muistista
+            if (bubble.geometry) bubble.geometry.dispose();
+            if (bubble.material) bubble.material.dispose();
+        }
+    });
+
 
     // Clear ship tracking
     shipsById.clear();
@@ -3981,7 +3977,7 @@ export function cleanupScene() {
             mesh.material.dispose();
             mesh.count = 0;
             
-            // LISÄÄ TÄMÄ - nollaa kaikki instanssit
+            // nollaa kaikki instanssit
             const dummy = new THREE.Object3D();
             dummy.scale.set(0, 0, 0);
             dummy.updateMatrix();
@@ -4362,7 +4358,7 @@ window.getSceneDebugInfo = getSceneDebugInfo;
 window.performMemoryCleanup = performMemoryCleanup;
 window.cleanupCombatChecks = cleanupCombatChecks;
 
-// Lisää myös automaattinen cleanup 10 sekunnin välein
+// automaattinen cleanup 10 sekunnin välein
 setInterval(() => {
     // Tarkista onko tracking accuracy huono
     let totalTracked = 0;

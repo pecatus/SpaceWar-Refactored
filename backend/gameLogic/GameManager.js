@@ -108,7 +108,7 @@ class GameManager extends EventEmitter {
   }
 
   /* ======================================================================= */
-  /*  ----------  UUSI → PELIN LUONTI  ------------------------------------- */
+  /*  ----------  PELIN LUONTI  -------------------------------------------- */
   /* ======================================================================= */
 
   /** Luo täysin uuden pelimaailman ja käynnistää sen. Palauttaa payloadin clientille. */
@@ -160,7 +160,6 @@ class GameManager extends EventEmitter {
     await Player.insertMany(players);
 
     /* 3) Tähdet (ensimmäiset pelaajille, loput neutraleiksi) */
-    /* 3) Tähdet - KORJATTU VERSIO */
     const stars = [];
     
     // Lasketaan kartan koko samalla kaavalla kuin monoliitissa
@@ -265,7 +264,7 @@ class GameManager extends EventEmitter {
         stars.push(new Star(starData));
     }
 
-    /* 4) Luo starlane-yhteydet - KORJATTU */
+    /* 4) Luo starlane-yhteydet */
     const STAR_CONNECTION_MAX_DIST_BASE = 175;
     const STAR_CONNECTION_PROBABILITY = 0.25;
     
@@ -302,15 +301,10 @@ class GameManager extends EventEmitter {
     }
 
     await Star.insertMany(stars);
-
-    /* 4) Päivitä Game-doc (optio, jos haluat tallentaa listat viitteinä myöhemmin) */
-    // await Game.updateOne({ _id: this.gameId }, { $set: { /* ... */ } });
-
     /* 5) Lataa muistiin ja starttaa */
     await this.init();
     //Palautetaan koko alkutila, ei vain gameId:tä
     const initialState = await this.getSerializableState();
-
     return { success: true, initialState };
   }
 
@@ -330,7 +324,7 @@ class GameManager extends EventEmitter {
     this.state.ships = await Ship.find({ gameId: this.gameId }).exec();
     const players = await Player.find({ gameId: this.gameId }).exec();
 
-    // --- UUSI, YKSINKERTAINEN JA LUOTETTAVA RESURSSIEN ALUSTUS ---
+    // --- RESURSSIEN ALUSTUS ---
     // Tyhjennetään ensin vanhat resurssit varmuuden vuoksi.
     this.state.resources = {};
 
@@ -534,7 +528,7 @@ async _loop() {
     }
 }
 
-// Uusi funktio taustallennukseen
+// funktio taustallennukseen
 async _saveInBackground() {
     const promises = [];
     
@@ -574,7 +568,6 @@ async _saveInBackground() {
                     })
                     .catch(e => {
                         if (e.message.includes("Can't save() the same doc")) {
-                            // Tämä on OK - ignoroi
                         } else {
                             console.error(`[BG-SAVE] Star ${starId}:`, e.message);
                         }
@@ -744,7 +737,6 @@ async _checkConquestStart(star, ships, diff) {
       }
       else if (job.type === 'Defense Upgrade') {
         star.defenseLevel += 1;
-        // Lisää tämä rivi:
         star.defenseHP = star.defenseLevel * COMBAT_CONSTANTS.DEFENSE_HP_PER_LEVEL;
         star.markModified('defenseHP');
       }
@@ -783,8 +775,8 @@ async _checkConquestStart(star, ships, diff) {
               hasGalacticHub: star.hasGalacticHub,
               planetaryQueue: star.planetaryQueue,
               shipQueue: star.shipQueue,
-              planetaryQueueTotalTime: star.planetaryQueueTotalTime, // LISÄÄ TÄMÄ
-              shipQueueTotalTime: star.shipQueueTotalTime // JA TÄMÄ
+              planetaryQueueTotalTime: star.planetaryQueueTotalTime, 
+              shipQueueTotalTime: star.shipQueueTotalTime 
           }
       });
     }
@@ -875,7 +867,7 @@ async _checkConquestStart(star, ships, diff) {
             if (star.population < cap) {
                 star.population += 1;
                 
-                // LISÄÄ TÄMÄ: Kerätään tieto muuttuneesta tähdestä
+                // Kerätään tieto muuttuneesta tähdestä
                 updatesToSend.push({
                     action: 'STAR_UPDATED',
                     starId: star._id,
@@ -1145,7 +1137,6 @@ _interpolatePosition(from, to, t) {
     };
 }
 
-// Korvaa koko _advanceMovement funktio tällä
 async _advanceMovement(diff) {
     // =========================================================================
     // VAIHE 1: POSITIOIDEN LASKEMINEN (kuten ennenkin)
@@ -1173,7 +1164,7 @@ async _advanceMovement(diff) {
     });
 
     // =========================================================================
-    // VAIHE 2: BONUSTICKIEN MÄÄRITTÄMINEN (UUSI, LUOTETTAVAMPI LOGIIKKA)
+    // VAIHE 2: BONUSTICKIEN MÄÄRITTÄMINEN 
     // =========================================================================
     const shipsToGetBonus = new Set(); // Kerätään bonuksen saavat alukset tähän
     const slipstreamFrigates = this.state.ships.filter(s => s.type === 'Slipstream Frigate');
@@ -1365,7 +1356,7 @@ async _advanceConquest(diff) {
                 sum + (s.type === 'Cruiser' ? 3 : 1), 0
             ) * slowdownRatio * this._speed;;
             
-            star.conquestProgress += conquestRate; // <-- TÄMÄ ON OIKEIN
+            star.conquestProgress += conquestRate; 
             star.markModified('conquestProgress');
             
             // Valloitus valmis?
@@ -1376,7 +1367,7 @@ async _advanceConquest(diff) {
                 // Vaihda omistaja
                 star.ownerId = star.isBeingConqueredBy;
                 star.population = 1;
-                star.shipyardLevel = star.shipyardLevel; // Säilyy
+                star.shipyardLevel = star.shipyardLevel; 
                 
                 // Kaivostuho (50% satunnaisesti)
                 if (oldMines > 0) {
@@ -1686,7 +1677,7 @@ async _checkConquestStart(star, shipsAtStar, diff) {
         await this._destroyShip(ship._id, diff);
         return true;
       }
-      this._pendingSaves.ships.add(ship);  // LISÄÄ TÄMÄ
+      this._pendingSaves.ships.add(ship);  
       return false;
   }
 
@@ -1705,7 +1696,7 @@ async _checkConquestStart(star, shipsAtStar, diff) {
         const newLevel = Math.ceil(star.defenseHP / COMBAT_CONSTANTS.DEFENSE_HP_PER_LEVEL);
         if (newLevel < star.defenseLevel) {
             star.defenseLevel = newLevel;
-            this._pendingSaves.stars.add(star);  // LISÄÄ TÄMÄ
+            this._pendingSaves.stars.add(star);  
             
             // Lähetä defense damage heti
             const damageDiff = [{ action: 'DEFENSE_DAMAGED', starId: star._id, newLevel: newLevel }];
@@ -1781,7 +1772,7 @@ async _checkConquestStart(star, shipsAtStar, diff) {
   }
   
 async _resolvePDOnlyBattle(star, attackers, diff) {
-    // LISÄÄ: PD ampuu ensin takaisin!
+    // PD ampuu ensin takaisin
     if (star.defenseHP > 0 && star.defenseLevel > 0) {
         const shots = star.defenseLevel * 3;
         const validTargets = [...attackers]; // Kopioi lista

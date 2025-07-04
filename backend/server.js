@@ -332,34 +332,43 @@ app.post("/api/games/new", async (req, res) => {
 setInterval(async () => {
   try {
     const cutoffTime = new Date(Date.now() - 24 * 60 * 60 * 1000); // 24h vanha
-    
-    // Poista vanhat "lobby" tilassa olevat pelit
-    const deletedLobby = await Game.deleteMany({
-      status: 'lobby',
+
+    // VAIHE 1: Etsi kaikki siivottavat pelit (sekä "playing" että "lobby")
+    const gamesToClean = await Game.find({
+      status: { $in: ["playing", "lobby"] },
       createdAt: { $lt: cutoffTime }
-    });
-    
-    // Merkitse vanhat aktiiviset pelit päättyneiksi
-    const aborted = await Game.updateMany(
-      {
-        status: 'playing',
-        lastSavedAt: { $lt: cutoffTime }
-      },
-      {
-        $set: { 
-          status: 'aborted',
-          finishedAt: new Date()
-        }
-      }
-    );
-    
-    if (deletedLobby.deletedCount > 0 || aborted.modifiedCount > 0) {
-      console.log(`🧹 Cleaned up: ${deletedLobby.deletedCount} lobby games deleted, ${aborted.modifiedCount} games aborted`);
+    }).select('_id').lean(); // Hae vain ID:t tehokkuuden vuoksi
+
+    if (gamesToClean.length === 0) {
+      // Ei siivottavaa, lopetetaan tähän.
+      return;
     }
+
+    // VAIHE 2: Kerää pelien ID:t listaksi
+    const gameIdsToClean = gamesToClean.map(g => g._id);
+    console.log(`🧹 Found ${gameIdsToClean.length} old games to clean up. IDs:`, gameIdsToClean.map(id => id.toString()));
+
+    // VAIHE 3: Aja poistokomennot kaikkiin liittyviin kokoelmiin
+    const [deletedShips, deletedStars, deletedPlayers] = await Promise.all([
+      mongoose.model('Ship').deleteMany({ gameId: { $in: gameIdsToClean } }),
+      mongoose.model('Star').deleteMany({ gameId: { $in: gameIdsToClean } }),
+      mongoose.model('Player').deleteMany({ gameId: { $in: gameIdsToClean } })
+    ]);
+
+    console.log(`  - Deleted: ${deletedShips.deletedCount} ships, ${deletedStars.deletedCount} stars, ${deletedPlayers.deletedCount} players.`);
+
+    // VAIHE 4: Lopuksi, poista itse pelidokumentit
+    const deletedGames = await Game.deleteMany({
+      _id: { $in: gameIdsToClean }
+    });
+
+    console.log(`  - Deleted: ${deletedGames.deletedCount} game entries.`);
+    console.log(`✅ Cleanup complete.`);
+
   } catch (err) {
-    console.error('Cleanup error:', err);
+    console.error('❌ Cleanup job error:', err);
   }
-}, 10 * 60 * 1000); // 10 min
+}, 10 * 60 * 1000); // Aja 10 minuutin välein
 
 
 

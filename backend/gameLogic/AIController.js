@@ -237,7 +237,7 @@ class AIController {
 
       const acts = [];
 
-      // UUSI: Tarkista gathering timeout
+      // Tarkista gathering timeout
       if (this.gatheringTarget && this.gatheringStartTurn) {
           if (turnNumber - this.gatheringStartTurn > this.GATHERING_TIMEOUT) {
               console.log(`[AI] Gathering timeout - proceeding with available forces`);
@@ -374,7 +374,7 @@ class AIController {
           });
       };
 
-      // Infrastructure (max 5 vanhassa, mutta AIController käyttää jo 5)
+      // Infrastructure
       if (star.infrastructureLevel < 5 && !this._infraQueued(star)) {
           const c = this._infraCost(star.infrastructureLevel);
           push(`Infrastructure Lvl ${c.nextLevel}`, c);
@@ -604,11 +604,11 @@ class AIController {
       }
       
       // Debug loki (poista tuotannosta)
-      if (Math.random() < 0.05) { // 5% ajasta
-          console.log(`[AI-SHIPS] Enemy distribution: F:${(enemyDist.fighterRatio*100).toFixed(0)}% D:${(enemyDist.destroyerRatio*100).toFixed(0)}% C:${(enemyDist.cruiserRatio*100).toFixed(0)}%`);
-          console.log(`[AI-SHIPS] Counter weights: F:${counterWeights.Fighter.toFixed(2)} D:${counterWeights.Destroyer.toFixed(2)} C:${counterWeights.Cruiser.toFixed(2)}`);
-          console.log(`[AI-SHIPS] Building priority: ${priorities.join(' > ')}`);
-      }
+      //if (Math.random() < 0.05) { // 5% ajasta
+      //    console.log(`[AI-SHIPS] Enemy distribution: F:${(enemyDist.fighterRatio*100).toFixed(0)}% D:${(enemyDist.destroyerRatio*100).toFixed(0)}% C:${(enemyDist.cruiserRatio*100).toFixed(0)}%`);
+      //    console.log(`[AI-SHIPS] Counter weights: F:${counterWeights.Fighter.toFixed(2)} D:${counterWeights.Destroyer.toFixed(2)} C:${counterWeights.Cruiser.toFixed(2)}`);
+      //    console.log(`[AI-SHIPS] Building priority: ${priorities.join(' > ')}`);
+      //}
       
       return priorities;
   }
@@ -671,7 +671,7 @@ class AIController {
   /* ==================================================================== */
   /*  EXPANSION                                                           */
   /* ==================================================================== */
-  // Uusi funktio: Analysoi tarvitaanko joukkojen keräämistä
+  // Analysoi tarvitaanko joukkojen keräämistä
   _needsFleetGathering(targetStar, availableShips) {
       if (!targetStar.ownerId || targetStar.defenseLevel === 0) return false;
       
@@ -692,7 +692,7 @@ class AIController {
             casualtyRate > 0.6;
   }
 
-  // Uusi funktio: Etsi paras kokoamispaikka
+  // Etsi paras kokoamispaikka
   _findGatheringPoint(targetStar, myStars) {
       let bestStar = null;
       let bestScore = -Infinity;
@@ -866,7 +866,7 @@ class AIController {
       return acts;
   }
 
-  // Uusi funktio: Aloita gathering
+  // Aloita gathering
   _startGathering() {
       const acts = [];
       const gatheringStar = this.gatheringTarget;
@@ -899,7 +899,7 @@ class AIController {
       return acts;
   }
 
-  // Uusi funktio: Jatka gatheringia tai hyökkää
+  // Jatka gatheringia tai hyökkää
   _continueGathering() {
       const acts = [];
       const gatheringStar = this.gatheringTarget;
