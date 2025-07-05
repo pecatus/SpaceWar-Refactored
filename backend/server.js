@@ -31,11 +31,7 @@ const WHITELIST = [
 ];
 
 app.use(cors({
-  origin: (origin, cb) => {
-    // Salli myös Postman / curl (= origin undefined)
-    if (!origin || WHITELIST.includes(origin)) return cb(null, true);
-    cb(new Error("CORS blocked for " + origin));
-  },
+  origin: WHITELIST, // Anna taulukko suoraan
   methods: ["GET", "POST", "OPTIONS"],
   credentials: true
 }));
