@@ -38,7 +38,7 @@ const BUTTON_HOVER_COOLDOWN = 0.03;
 /*  CONSTANTS & CONFIGURATION                                                 */
 /* ========================================================================== */
 
-const BACKEND_URL = "http://localhost:3001";
+const BACKEND_URL = "https://spacewar-refactored.onrender.com";
 const DEFAULT_AI_COLORS = [
     0xdc3545, // Red
     0x28a745, // Green  
