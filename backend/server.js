@@ -27,7 +27,7 @@ app.use(express.json());
 const WHITELIST = [
   "http://127.0.0.1:5500",
   "http://localhost:5500",
-  "https://lassesimonen.fi/spaceWar/"
+  "https://lassesimonen.fi"
 ];
 
 app.use(cors({
