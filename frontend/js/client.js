@@ -153,6 +153,12 @@ socket.on("connect", () => {
 //     console.log("✅ Socket connected", socket.id);
 });
 
+setInterval(() => {
+    if (socket.connected) {
+        socket.emit('client_ping');
+    }
+}, 30000); // 30 sekuntia
+
 socket.on("disconnect", () => {
 //     console.log("❌ Disconnected from server");
     // Näytä UI että yhteys katkesi
