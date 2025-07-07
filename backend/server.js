@@ -209,6 +209,14 @@ io.on("connection", socket => {
       }
   });
 
+  // Kuuntele clientin ping-viestejä ja vastaa pongilla
+  socket.on('client_ping', () => {
+      // Voit halutessasi lähettää vastauksen, mutta pelkkä pyynnön
+      // vastaanottaminen riittää pitämään yhteyden aktiivisena.
+      // logDev(`Received ping from ${socket.id}`);
+      socket.emit('server_pong');
+  });
+
 });
 
 /* ---------------------- REST API --------------------- */
