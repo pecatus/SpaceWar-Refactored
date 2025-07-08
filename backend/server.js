@@ -230,7 +230,6 @@ app.post("/api/games/new", async (req, res) => {
   try {
     const playerId = req.sessionID; // Uniikki selain-istunnon tunniste
 
-    // --- PARANNETTU SIIVOUSLOGIIKKA ---
     // Etsi KAIKKI tähän sessioon liittyvät vanhat pelit (sekä playing että lobby)
     const existingGames = await Game.find({ 
       status: { $in: ["playing", "lobby"] },
