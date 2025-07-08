@@ -209,12 +209,17 @@ io.on("connection", socket => {
       }
   });
 
-  // Kuuntele clientin ping-viestejä ja vastaa pongilla
-  socket.on('client_ping', () => {
-      // Voit halutessasi lähettää vastauksen, mutta pelkkä pyynnön
-      // vastaanottaminen riittää pitämään yhteyden aktiivisena.
-      // logDev(`Received ping from ${socket.id}`);
-      socket.emit('server_pong');
+  // Render.com sulkee yhteyden 15 minuutin kuluttua ilman http-kutsua. 
+  // Herätellään palvelinta 14 min välein (client.js:ssä socket.io -osiossa)
+  app.use(cors({
+    origin: WHITELIST,
+    methods: ["GET", "POST", "OPTIONS"],
+    credentials: true
+  }));
+
+  // Keep-alive-reitti estämään Renderin nukahtamisen
+  app.get('/api/keep-alive', (req, res) => {
+    res.status(200).send({ status: 'alive' });
   });
 
 });

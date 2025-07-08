@@ -153,11 +153,24 @@ socket.on("connect", () => {
 //     console.log("✅ Socket connected", socket.id);
 });
 
+// HTTP Keep-alive -mekanismi Renderiä varten
+const KEEP_ALIVE_INTERVAL = 14 * 60 * 1000; // 14 minuuttia
+
 setInterval(() => {
-    if (socket.connected) {
-        socket.emit('client_ping');
+    // Lähetä pyyntö vain, jos peli on aktiivisesti käynnissä
+    if (window.gameInProgress && !window.isPaused) {
+        fetch(`${BACKEND_URL}/api/keep-alive`)
+            .then(res => {
+                if (res.ok) {
+                    // console.log('Keep-alive ping sent successfully.');
+                }
+            })
+            .catch(err => {
+                // Virheestä ei tarvitse välittää, se voi johtua esim. yhteyden katkeamisesta
+                // console.log('Keep-alive ping failed, connection might be lost.');
+            });
     }
-}, 30000); // 30 sekuntia
+}, KEEP_ALIVE_INTERVAL);
 
 socket.on("disconnect", () => {
 //     console.log("❌ Disconnected from server");
