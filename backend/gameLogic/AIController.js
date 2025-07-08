@@ -17,9 +17,16 @@ const uuid = () => randomUUID();
  * KÄYTETÄÄN MIHIN: Yleinen apufunktio, jota AI käyttää jatkuvasti arvioidakseen etäisyyksiä
  * tähtien välillä, kun se päättää laajentumiskohteista tai puolustukseen lähetettävistä joukoista.
  *
- * @param {{x: number, y: number, z: number}} a - Ensimmäinen piste objekti.
- * @param {{x: number, y: number, z: number}} b - Toinen piste objekti.
- * @returns {number} Pisteiden välinen numeerinen etäisyys.
+ * MITEN: Funktio soveltaa Pythagoraan lausetta kolmessa ulottuvuudessa:
+ * 1. Laskee ensin pisteiden välisen erotuksen kullakin akselilla (dx, dy, dz).
+ * 2. Syöttää nämä erotukset `Math.hypot()`-funktiolle.
+ * 3. `Math.hypot(dx, dy, dz)` laskee tehokkaasti ja tarkasti neliöjuuren
+ * annettujen lukujen neliöiden summasta (√dx² + dy² + dz²), mikä on
+ * juuri etäisyyden kaava 3D-avaruudessa.
+ *
+ * @param {{x: number, y: number, z: number}} a - Ensimmäinen piste.
+ * @param {{x: number, y: number, z: number}} b - Toinen piste.
+ * @returns {number} Pisteiden välinen etäisyys.
  */
 function distance3D(a, b) {
   const dx = a.x - b.x, dy = a.y - b.y, dz = a.z - b.z;
