@@ -33,6 +33,7 @@ function distance3D(a, b) {
   return Math.hypot(dx, dy, dz);
 }
 
+
 /**
  * LASKEE MITÄ: Palauttaa alukselle numeerisen "taisteluvoiman" sen tyypin perusteella.
  * KÄYTETÄÄN MIHIN: Yksinkertainen heuristiikka, jonka avulla AI voi nopeasti arvioida
@@ -46,6 +47,7 @@ function shipPower(ship) {
          ship.type === 'Destroyer' ? 2 :
          ship.type === 'Cruiser'   ? 3 : 0;
 }
+
 
 /**
  * LASKEE MITÄ: Simuloi planeetan puolustuksen (Planetary Defense, PD) ensi-iskun
@@ -65,9 +67,12 @@ function starThreatScore(star, hostileShips) {
   return hostile.reduce((sum, sh) => sum + shipPower(sh), 0);
 }
 
+
 /* ---------------------------------------------------------------------------
  *  1.  Static cost / weight tables
  * ------------------------------------------------------------------------ */
+
+
 /**
  * MITÄ: Määrittää planetaaristen rakennusten ja päivitysten perushinnat ja rakennusajat.
  * MIKSI: Keskuspaikka, josta AI tarkistaa eri rakennusten kustannukset
@@ -81,6 +86,7 @@ const STRUCT_COST = {
   'Shipyard Lvl 3'  : { credits: 325, minerals: 260, time: 60 }
 };
 
+
 /**
  * MITÄ: Määrittää alusten rakennuskustannukset, -ajat ja vaaditun telakkatason.
  * FORMAATTI: [krediitit, mineraalit, rakennusaika sekunteina, vaadittu telakkataso]
@@ -93,6 +99,7 @@ const SHIP_COST = {
   Cruiser             : [150,  75, 45, 3 ],
   'Slipstream Frigate': [120, 180, 55, 4 ]
 };
+
 
 /**
  * MITÄ: Suhteelliset painoarvot eri rakennusvaihtoehdoille.
@@ -111,6 +118,7 @@ const WEIGHTS = {
   Cruiser            : 1.5
 };
 
+
 /**
  * MITÄ: Listat merkkijonoista, jotka tunnistavat "kalliit" kohteet.
  * MIKSI: AI käyttää näitä tunnistaakseen, mitkä rakennukset ja alukset vaativat
@@ -118,6 +126,7 @@ const WEIGHTS = {
  */
 const EXPENSIVE_PLANETARY_TAGS = ['Shipyard', 'Infrastructure Lvl', 'Defense Upgrade'];
 const EXPENSIVE_SHIP_TAGS      = ['Cruiser', 'Destroyer'];
+
 
 /**
  * MITÄ: Prosentuaalinen kynnysarvo (60%).
@@ -127,9 +136,12 @@ const EXPENSIVE_SHIP_TAGS      = ['Cruiser', 'Destroyer'];
  */
 const WAIT_THRESHOLD           = 0.60;      
 
+
 /* ---------------------------------------------------------------------------
  *  2.  Economy helpers
  * ------------------------------------------------------------------------ */
+
+
 /**
  * MÄÄRITTÄÄ MITÄ: Palauttaa prosenttiosuudet, joihin tekoälyn tulot jaetaan
  * talouden (eco), teknologian (tech) ja sodankäynnin (war) "lompakoiden" kesken.
@@ -137,7 +149,7 @@ const WAIT_THRESHOLD           = 0.60;
  * (mitattuna kaivosten kokonaismäärällä) AI painottaa eri asioita.
  * Esimerkiksi alussa se panostaa sotaan ja talouteen, kun taas keskipelissä
  * teknologiaan (infra/telakat) ja loppupelissä taas raskaasti sodankäyntiin.
- *
+ * 
  * @param {number} totalMines - AI:n omistamien kaivosten kokonaismäärä.
  * @returns {{eco: number, tech: number, war: number}} Objekti, joka sisältää jakosuhteet.
  */
@@ -150,11 +162,15 @@ function budgetShares(totalMines) {
   return                    { eco:0.05, tech:0.25, war:0.70 };
 }
 
+
 /**
  * LASKEE MITÄ: Jakaa annetun tulo-objektin kolmeen erilliseen budjettilompakkoon
  * käyttäen `budgetShares`-funktion määrittämiä suhteita.
  * KÄYTETÄÄN MIHIN: Tämä on käytännön toteutus, joka muuttaa prosentit konkreettisiksi
  * krediitti- ja mineraalimääriksi kutakin lompakkoa varten.
+ * ILMAN TÄTÄ: Kaikki AI:n rahat menevät yhteen lompakkoon, jolloin AI ostaa halvimman
+ * asian minkä voi (fighter), eikä koskaan kehitä planeettojaan kalliimmilla planetary upgradeilla,
+ * koska 60% säästötavoite ei koskaan täyty. 
  *
  * @param {{credits: number, minerals: number}} resIncome - Kierroksen aikana saadut tulot.
  * @param {number} totalMines - AI:n kaivosten kokonaismäärä, joka välitetään `budgetShares`-funktiolle.
@@ -169,6 +185,7 @@ function splitBudget(resIncome, totalMines) {
   };
 }
 
+
 /**
  * TARKISTAA MITÄ: Onko tietyssä lompakossa varaa tiettyyn kustannukseen.
  * KÄYTETÄÄN MIHIN: Yleinen apufunktio, jota AI käyttää jatkuvasti ennen ostopäätöstä.
@@ -180,6 +197,7 @@ function splitBudget(resIncome, totalMines) {
 function affordable(cost, wallet) {
   return wallet.credits >= cost.credits && wallet.minerals >= cost.minerals;
 }
+
 
 /**
  * TOTEUTTAA MITÄ: Vähentää kustannuksen sekä tietystä lompakosta että pelaajan globaalista
@@ -198,9 +216,12 @@ function pay(cost, wallet, globalRes) {
   globalRes.minerals -= cost.minerals;
 }
 
+
 /* ---------------------------------------------------------------------------
  *  3.  Early-game weighting lookup
  * ------------------------------------------------------------------------ */
+
+
 /**
  * MITÄ: Määrittää ennalta asetetut strategiset painoarvot pelin alkuvaiheille.
  * MIKSI: Tämä on AI:n "avauspeli". Sen sijaan, että AI laskisi monimutkaisia
@@ -226,6 +247,8 @@ const EARLY_STEPS = [
  * painoarvot käytettäväksi pelin alussa. Kun kaivoksia on 25 tai enemmän,
  * funktio palauttaa `null`, ja AI siirtyy käyttämään monimutkaisempaa,
  * dynaamista päätöksentekoa.
+ * ILMAN TÄTÄ: AI ei rakenna kaivoksia heti alussa, vaan rahat kuluvat 
+ * fightereihin ja kehitys pysähtyy.
  *
  * @param {number} totalMines - AI:n kaivosten kokonaismäärä.
  * @returns {object | null} Painoarvo-objekti tai null, jos alkupeli on ohi.
@@ -236,6 +259,7 @@ function earlyWeights(totalMines) {
     if (totalMines >= step.mines) return step.weights;
   return null;
 }
+
 
 /**
  * SIMULOI MITÄ: Laskee, mitkä alukset hyökkäävästä laivastosta selviytyisivät
@@ -294,9 +318,11 @@ function simulatePDFirstStrike(ships, defenseLevel) {
     return fleetCopy.filter(ship => ship.simHp > 0);
 }
 
+
 /* ---------------------------------------------------------------------------
  *  4.  AIController class
  * ------------------------------------------------------------------------ */
+
 class AIController {
    /**
    * Luo ja alustaa uuden tekoäly-ohjaimen instanssin yhdelle pelaajalle.
@@ -356,9 +382,12 @@ class AIController {
     this.GATHERING_TIMEOUT = 120;    // Maksimimäärä kierroksia, jotka AI jaksaa kerätä joukkoja.
   }
 
+
   /* -------------------------------------------------------------------- */
   /*  PUBLIC – one call per game tick                                     */
   /* -------------------------------------------------------------------- */
+
+
    /**
    * SUORITTAA MITÄ: Ajaa tekoälyn yhden täyden päätöksentekokierroksen (tick).
    * KÄYTETÄÄN MIHIN: Tämä on AIControllerin päämetodi, jota GameManager kutsuu säännöllisin
@@ -465,9 +494,12 @@ class AIController {
       return acts;
   }
 
+
   /* ==================================================================== */
   /*  PLANETARY BUILDING LOGIC                                            */
   /* ==================================================================== */
+
+
   /**
   * RAKENTAA MITÄ: Yrittää rakentaa yhden kaivoksen, jos se on mahdollista ja siihen on varaa.
   * KÄYTETÄÄN MIHIN: Tämä on yksinkertaistettu rakennusfunktio aivan pelin alkuun,
@@ -491,6 +523,7 @@ class AIController {
       }
       return null;
   }
+
 
   /**
   * PÄÄTTÄÄ MITÄ: Valitsee ja yrittää rakentaa yhden parhaaksi katsomansa planetaarisen rakennuksen
@@ -557,6 +590,7 @@ class AIController {
              build :{ type:bestAffordable.o.type, time:bestAffordable.o.cost.time } };
   }
 
+
   /**
   * KERÄÄ MITÄ: Käy läpi yhden tähden ja listaa kaikki mahdolliset rakennusvaihtoehdot sille.
   * KÄYTETÄÄN MIHIN: Apufunktio `_buildOneStructure`-metodille. Se purkaa "mitä voi rakentaa"
@@ -613,9 +647,12 @@ class AIController {
       }
   }
 
+
   /* ==================================================================== */
   /*  SHIPBUILDING                                                        */
   /* ==================================================================== */
+
+
   /**
  * PÄÄTTÄÄ MITÄ: Käy läpi kaikki AI:n omistamat telakat ja päättää, mitä aluksia
  * niillä rakennetaan tällä kierroksella.
@@ -698,6 +735,7 @@ class AIController {
     return acts;
   }
 
+
   /**
   * LASKEE MITÄ: Palauttaa vaaditun kaivosten minimimäärän suhteessa laivaston kokoon.
   * KÄYTETÄÄN MIHIN: Yksinkertainen taulukko, joka varmistaa, että AI:n talous kasvaa
@@ -710,6 +748,7 @@ class AIController {
     let req=0; for(const [ships,mines] of tbl) if(totalShips>=ships) req=mines;
     return req;
   }
+
 
   /**
   * LASKEE MITÄ: Paikallisen laivaston koostumuksen tietyn tähden ympärillä.
@@ -733,6 +772,7 @@ class AIController {
         total     : ships.length
       };
   }
+
 
   /**
   * ANALYSOI MITÄ: Laskee kaikkien vihollispelaajien yhteenlasketun laivaston
@@ -770,6 +810,7 @@ class AIController {
       return { fighterRatio: 0.33, destroyerRatio: 0.33, cruiserRatio: 0.34, total: 0 };
   }
   
+
   /**
   * PÄÄTTÄÄ MITÄ: Laskee ja palauttaa parhaan rakennusjärjestyksen aluksille yhdellä telakalla.
   * KÄYTETÄÄN MIHIN: Tämä on AI:n "kivi-paperi-sakset"-aivot. Se punnitsee kahta asiaa:
@@ -859,13 +900,6 @@ class AIController {
           priorities.push('Fighter');
       }
       
-      // Debug loki (poista tuotannosta)
-      //if (Math.random() < 0.05) { // 5% ajasta
-//       //    console.log(`[AI-SHIPS] Enemy distribution: F:${(enemyDist.fighterRatio*100).toFixed(0)}% D:${(enemyDist.destroyerRatio*100).toFixed(0)}% C:${(enemyDist.cruiserRatio*100).toFixed(0)}%`);
-//       //    console.log(`[AI-SHIPS] Counter weights: F:${counterWeights.Fighter.toFixed(2)} D:${counterWeights.Destroyer.toFixed(2)} C:${counterWeights.Cruiser.toFixed(2)}`);
-//       //    console.log(`[AI-SHIPS] Building priority: ${priorities.join(' > ')}`);
-      //}
-      
       return priorities;
   }
 
@@ -873,6 +907,7 @@ class AIController {
   /* ==================================================================== */
   /*  DEFENSIVE REDEPLOYMENT                                              */
   /* ==================================================================== */
+
 
   /**
  * TOTEUTTAA MITÄ: AI:n puolustuslogiikan. Käy läpi kaikki omat tähdet, tunnistaa uhatut
@@ -943,16 +978,20 @@ class AIController {
       return acts;
   }
 
+
   /* ==================================================================== */
   /*  EXPANSION                                                           */
   /* ==================================================================== */
   
+
   /**
   * ARVIOI MITÄ: Päättää, onko hyökkäys tiettyyn tähteen niin riskialtis,
   * että joukot täytyy ensin kerätä yhteen ennen hyökkäystä (fleet gathering).
   * KÄYTETÄÄN MIHIN: Tämä on AI:n riskinhallintatyökalu. Se estää AI:ta
   * lähettämästä pieniä laivastoja varmaan kuolemaan vahvasti puolustettuja
   * kohteita vastaan.
+  * ILMAN TÄTÄ: Vihollinen lähettää yksittäisiä aluksia kuolemaan yksi kerrallaan 
+  * tähteen jolla on yksi PD, eikä AI pääse eroon tilanteesta. 
   *
   * @param {object} targetStar - Potentiaalinen hyökkäyskohde.
   * @param {Array<object>} availableShips - Laivasto, jolla hyökkäystä harkitaan.
@@ -975,6 +1014,7 @@ class AIController {
             survivorPower < MIN_CONQUEST_POWER ||   // 2. Jäljelle ei jäisi tarpeeksi voimaa.
             casualtyRate > 0.6;                     // 3. Tappiot olisivat yli 60%.
   }
+
 
   /**
   * ETSII MITÄ: Parhaan turvallisen tähden laivaston keräämistä varten.
@@ -1026,6 +1066,7 @@ class AIController {
       return bestStar;
   }
     
+
   /**
   * PÄÄTTÄÄ MITÄ: AI:n laajentumisstrategian pääfunktio. Päättää, mihin hyökätään,
   * millä joukoilla, ja käynnistääkö se laivastonkeräysoperaation.
@@ -1164,6 +1205,7 @@ class AIController {
       return acts;
   }
 
+
   /**
   * KÄYNNISTÄÄ MITÄ: Laivaston keräämisen. Antaa siirtokäskyt kaikille ylimääräisille
   * aluksille kohti ennalta määrättyä kokoontumispistettä.
@@ -1201,6 +1243,7 @@ class AIController {
       return acts;
   }
 
+
   /**
   * PÄÄTTÄÄ MITÄ: Jatkaako joukkojen keräämistä vai onko aika hyökätä.
   * KÄYTETÄÄN MIHIN: Tämä funktio ajetaan joka kierros, kun `gatheringTarget` on asetettu.
@@ -1233,7 +1276,6 @@ class AIController {
       
       // Jos voima riittää, hyökkää!
       if (survivorPower >= 8) { 
-//           console.log(`[AI] Fleet gathered! Attacking ${targetStar.name} with ${gatheredShips.length} ships`);
           gatheredShips.forEach(ship => {
               acts.push({ 
                   action: 'MOVE_SHIP',
@@ -1255,9 +1297,11 @@ class AIController {
       return acts;
   }
 
+
   /* ==================================================================== */
   /*  SCORING HELPERS (build decisions)                                   */
   /* ==================================================================== */
+
 
   /**
   * LASKEE MITÄ: Tähden "tehollisen" telakkatason, joka sisältää sekä valmiit
@@ -1271,6 +1315,7 @@ class AIController {
             it.type.startsWith('Shipyard')
         ).length;
   }
+
 
   /**
   * LASKEE MITÄ: "Vähenevän tuoton" (diminishing returns) kertoimen uusien telakoiden
@@ -1292,6 +1337,7 @@ class AIController {
       return 0.05;
   }
 
+
   // --- Seuraavat ovat yksinkertaisia apufunktioita, jotka tekevät koodista luettavampaa ---
   _effectiveInfraLevel(star){
     return star.infrastructureLevel +
@@ -1299,6 +1345,7 @@ class AIController {
   }
   _infraQueued(star){ return (star.planetaryQueue||[]).some(it=>it.type.startsWith('Infrastructure')); }
   _yardQueued (star){ return (star.planetaryQueue||[]).some(it=>it.type.startsWith('Shipyard')); }
+
 
   /**
   * VALITSEE MITÄ: Palauttaa oikean lompakon (`eco`, `tech`, `war`) tietylle rakennustyypille.
@@ -1311,6 +1358,7 @@ class AIController {
       return this.tech;
     return this.war;
   }
+
 
   /**
   * LASKEE MITÄ: Infrastruktuurin päivityksen dynaamisen hinnan.
@@ -1328,11 +1376,13 @@ class AIController {
   }
   _shipyardCost(lvl){ return this._infraCost(lvl); }    // Telakka käyttää samaa kustannuskaavaa.
 
+
   /** TARKISTAA MITÄ: Onko tähdellä tilaa uusille kaivoksille. */
   _hasMineRoom(star){
     const lim=this.infra[star.infrastructureLevel].maxMines;
     return star.mines + this._queuedCount(star,'Mine') < lim;
   }
+
 
   /**
   * @summary Laskee kertoimen kaivoksen rakentamisen pisteytykselle.
@@ -1374,6 +1424,7 @@ class AIController {
       // sen kehittämistä suositaan. Pisteet ovat suoraan verrannollisia jäljellä olevaan tilaan.
       return Math.min(1, free / 5 + 0.20); // 5 slot → 0.20, 4 slot → 0.40 …
   }
+
 
   /**
   * LASKEE MITÄ: Yksittäisen rakennusvaihtoehdon (esim. "rakenna kaivos")
@@ -1500,6 +1551,7 @@ class AIController {
     return score;
 }
 
+
   /** LASKEE MITÄ: "Ihanteellisen" puolustustason tähdelle sen arvon perusteella. */
   _wantedDefense(star, futureYard){
     const lvl=star.infrastructureLevel;
@@ -1509,14 +1561,40 @@ class AIController {
     return futureYard>0 ? 6 : 4;
   }
 
+
   /** LASKEE MITÄ: Kuinka monta tiettyä tyyppiä olevaa kohdetta on jonossa. */
   _queuedCount(star,type){ return (star.planetaryQueue||[]).filter(it=>it.type===type).length; }
+
 
   /* ==================================================================== */
   /*  MISC UTILITIES                                                       */
   /* ==================================================================== */
+
+
+  /**
+ * @summary Hakee alus-objektin muistista sen ID:n perusteella.
+ * @description Tämä on yksinkertainen apufunktio, joka tekee koodista luettavampaa.
+ * Sen sijaan, että koodissa toistettaisiin pitkää `this.ships.find(...)` -lausetta,
+ * voidaan käyttää lyhyttä ja selkeää `this._ship(id)` -kutsua.
+ *
+ * @param {string|ObjectId} id - Haettavan aluksen ID.
+ * @returns {Ship|undefined} Palauttaa löytyneen alus-objektin tai undefined, jos sitä ei löydy.
+ * @private
+ */
   _ship(id){ return this.ships.find(s=>s.id===id); }
+
+
+  /**
+ * @summary Hakee tähti-objektin muistista sen ID:n perusteella.
+ * @description Vastaava apufunktio kuin `_ship(id)`. Lyhentää koodia ja parantaa
+ * sen luettavuutta tarjoamalla oikotien tähden hakemiseen.
+ *
+ * @param {string|ObjectId} id - Haettavan tähden ID.
+ * @returns {Star|undefined} Palauttaa löytyneen tähti-objektin tai undefined.
+ * @private
+ */
   _starById(id){ return this.stars.find(s=>s.id===id); }
+
 
   /** LASKEE MITÄ: AI:n omistamien kaivosten kokonaismäärän (valmiit + jonossa). 
    *  Käytetään mm. early weighteissä kun tavoitteena > 25 kaivosta ennen AI:n vapauttamista
@@ -1526,6 +1604,7 @@ class AIController {
       .filter(s=>s.ownerId?.toString()===this.aiId)
       .reduce((sum,st)=>sum+st.mines+this._queuedCount(st,'Mine'),0);
   }
+
 
   /** TOTEUTTAA MITÄ: Lisää jaetut tulot kolmeen erilliseen lompakkoon. */
   _deposit(split){
