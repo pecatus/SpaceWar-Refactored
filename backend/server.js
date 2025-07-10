@@ -1,97 +1,189 @@
 // server.js – Express + Mongo + Socket.IO bootstrap
-// ---------------------------------------------------------------------------
+// =================================================================================
+// TÄMÄ TIEDOSTO ON SOVELLUKSEN SYDÄN PALVELINPUOLELLA.
+// Se on vastuussa seuraavista päätehtävistä:
+// 1. Express-palvelimen luonti ja konfigurointi HTTP-pyyntöjen käsittelyyn.
+// 2. Yhteyden muodostaminen MongoDB-tietokantaan Mongoose-kirjaston avulla.
+// 3. Socket.IO-palvelimen alustus reaaliaikaista kaksisuuntaista viestintää varten.
+// 4. Aktiivisten pelien hallinta GameManager-instanssien avulla.
+// =================================================================================
 
+
+// Ladataan ympäristömuuttujat .env-tiedostosta.
+// MIKSI: Tämä mahdollistaa arkaluontoisten tietojen, kuten tietokannan
+// yhteysosoitteen, pitämisen erillään koodista.
 require("dotenv").config();
 
-const express    = require("express");
-const session    = require('express-session');
-const cors       = require("cors");
-const mongoose   = require("mongoose");
-const http       = require("http");
-const { Server } = require("socket.io");
 
-const GameManager = require("./gameLogic/GameManager");
-const Game        = require("./models/Game");
+// --- RIIPPUVUUDET (IMPORTS) ---
+// Ladataan kaikki tarvittavat Node.js-moduulit.
+const express    = require("express");        // Web-sovelluskehys HTTP-palvelimen ja reitityksen luomiseen.
+const session    = require('express-session');// (Ei tällä hetkellä aktiivisessa käytössä, mutta varattu sessioiden hallintaan).
+const cors       = require("cors");           // Middleware, joka sallii selainten tehdä pyyntöjä eri alkuperästä (domainista).
+const mongoose   = require("mongoose");       // ODM-kirjasto (Object Data Modeling) MongoDB:n kanssa työskentelyyn.
+const http       = require("http");           // Node.js:n sisäänrakennettu moduuli HTTP-palvelimen luomiseen.
+const { Server } = require("socket.io");      // Socket.IO-palvelinkirjasto WebSocket-pohjaiseen reaaliaikaviestintään.
 
-const app  = express();
-const PORT = process.env.PORT || 3001;
-/* Käytetään muistissa pientä manager-cachea: Map<gameId, GameManager> */
+// --- SOVELLUKSEN OMAT MODUULIT ---
+const GameManager = require("./gameLogic/GameManager"); // Pelilogiikan pääluokka, joka hallinnoi yhden pelin tilaa.
+const Game        = require("./models/Game");           // Mongoose-skeema, joka määrittelee pelin tietorakenteen tietokannassa.
+
+// --- ALUSTUS ---
+const app  = express();                       // Luodaan uusi Express-sovellusinstanssi.
+const PORT = process.env.PORT || 3001;        // Määritetään portti, jossa palvelin kuuntelee. Käyttää .env-tiedoston porttia tai oletusta 3001.
+
+// --- GLOBAALI TILANHALLINTA (PALVELIMEN MUISTISSA) ---
+
+/**
+ * @summary Aktiivisten pelien välimuisti.
+ * @description MITÄ: Tämä Map-rakenne säilyttää käynnissä olevien pelien GameManager-instanssit.
+ * Avaimena on pelin ID (`gameId`) ja arvona vastaava `GameManager`-olio.
+ * MIKSI: Pitämällä aktiiviset pelit palvelimen muistissa vältetään jatkuvat, hitaat
+ * tietokantahaut jokaista pelitapahtumaa kohden. Tämä on elintärkeää pelin suorituskyvylle.
+ * @type {Map<string, GameManager>}
+ */
 const managers = new Map();
-/* Tallennetaan human player socketit: Map<gameId, socketId> */
+
+
+/**
+ * @summary Ihmispelaajien socket-yhteyksien seuranta.
+ * @description MITÄ: Tämä Map säilöö, mikä socket-yhteys kuuluu millekin ihmispelaajalle
+ * kussakin pelissä. Avaimena on pelin ID (`gameId`) ja arvona pelaajan `socket.id`.
+ * MIKSI: Mahdollistaa suorien viestien lähettämisen tietylle pelaajalle ja auttaa
+ * tunnistamaan, kuka pelin "isäntä" (host) on.
+ * @type {Map<string, string>}
+ */
 const humanPlayerSockets = new Map();
 
 
+// --- MIDDLEWARE-MÄÄRITYKSET ---
+
+// MITÄ: Ottaa käyttöön JSON-parserin.
+// MIKSI: Tämä Expressin sisäänrakennettu middleware jäsentää saapuvien
+// HTTP-pyyntöjen rungon (body) JSON-muodosta JavaScript-objektiksi,
+// joka on helposti käsiteltävissä (esim. `req.body`).
 app.use(express.json());
 
-/* ---------------------- CORS ------------------------- */
+
+/* ---------------------- CORS (Cross-Origin Resource Sharing) ------------------------- */
+// MITÄ: Määritellään, mitkä ulkoiset osoitteet saavat tehdä pyyntöjä tähän palvelimeen.
+// MIKSI: Selaimet estävät oletuksena HTTP-pyynnöt eri domaineihin turvallisuussyistä.
+// CORS-määritys kertoo selaimelle, että luotamme listattuihin osoitteisiin ja sallimme
+// niiden kommunikoida palvelimemme kanssa.
 const WHITELIST = [
-  "http://127.0.0.1:5500",
-  "http://localhost:5500",
-  "https://lassesimonen.fi"
+  "http://127.0.0.1:5500",    // Paikallinen kehitysympäristö (Live Server)
+  "http://localhost:5500",    // Toinen yleinen paikallinen osoite
+  "https://lassesimonen.fi"   // Tuotantoympäristön domain
 ];
 
 app.use(cors({
-  origin: WHITELIST, // Anna taulukko suoraan
-  methods: ["GET", "POST", "OPTIONS"],
-  credentials: true
+  origin: WHITELIST,          // Sallitaan pyynnöt vain WHITELIST-taulukossa olevista osoitteista.
+  methods: ["GET", "POST", "OPTIONS"],  // Sallitaan vain tietyt HTTP-metodit.
+  credentials: true           // Sallitaan evästeiden ja sessiotietojen lähettäminen pyyntöjen mukana.
 }));
 
-/* ---------------------- MongoDB ---------------------- */
+
+/* ---------------------- MongoDB-YHTEYS ---------------------- */
+// MITÄ: Yritetään yhdistää MongoDB-tietokantaan käyttäen .env-tiedostosta löytyvää URIa.
+// MIKSI: Tietokantayhteys on välttämätön pelien tilan pysyvään tallentamiseen ja
+// lataamiseen. `.then()` ja `.catch()` hoitavat yhteyden onnistumisen ja epäonnistumisen.
 mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log("✅  MongoDB connected"))
+  .then(() => console.log("✅  MongoDB connected"))   // Tulostetaan onnistumisviesti konsoliin.
+  // Jos yhteys epäonnistuu, tulostetaan virhe ja sammutetaan koko prosessi.
+  // Tämä estää sovelluksen ajamisen epävakaassa tilassa ilman tietokantaa.
   .catch(err => { console.error("❌  Mongo error:", err.message); process.exit(1); });
 
-/* ---------------------- Sessions --------------------- */
 
+
+/* ---------------------- Sessions --------------------- */
+// MITÄ: Otetaan käyttöön express-session -middleware.
+// MIKSI: Tämä middleware luo ja hallinnoi yksilöllisiä sessioita jokaiselle selaimeen
+// yhdistävälle käyttäjälle. Tässä sovelluksessa `req.sessionID`:tä käytetään
+// luotettavana ja uniikkina tunnisteena ihmispelaajalle, kun uusi peli luodaan.
+// Se varmistaa, että sama pelaaja voi jatkaa peliään ja että vanhat pelit
+// voidaan siivota pois, kun sama pelaaja aloittaa uuden.
 app.use(session({
-  secret: process.env.SESSION_SECRET, // || 'dev-secret-change-this',
+  // Salainen avain, jota käytetään allekirjoittamaan sessio-ID-eväste.
+  // Tulee AINA olla .env-tiedostossa tuotannossa turvallisuussyistä.
+  secret: process.env.SESSION_SECRET, 
+  // `resave: false` estää session tallentamisen uudelleen, jos sitä ei ole muutettu.
+  // Tämä on suorituskykyoptimointi.
   resave: false,
+  // `saveUninitialized: true` tallentaa uuden, mutta muuttamattoman session heti.
+  // Tämä on välttämätöntä, jotta `req.sessionID` on olemassa heti ensimmäisestä pyynnöstä alkaen.
   saveUninitialized: true,
   cookie: { 
-    secure: false, // true jos käytät HTTPS:ää
-    httpOnly: true,
-    maxAge: 24 * 60 * 60 * 1000 // 24h
+    secure: false, // Aseta `true` tuotannossa, jos käytät HTTPS:ää.
+    httpOnly: true, // Estää client-puolen JavaScriptiä lukemasta evästettä.
+    maxAge: 24 * 60 * 60 * 1000 // Evästeen elinikä: 24 tuntia.
   }
 }));
 
-/* ---------------------- Socket.IO -------------------- */
-const httpSrv = http.createServer(app);
 
+/* ---------------------- Socket.IO-ALUSTUS -------------------- */
+// MITÄ: Luodaan natiivi Node.js http-palvelin ja liitetään Socket.IO siihen.
+// MIKSI: Socket.IO vaatii toimiakseen HTTP-palvelimen, johon se voi "kiinnittyä".
+// Vaikka Express luo oman HTTP-palvelimensa sisäisesti, Socket.IO:n eksplisiittinen
+// liittäminen antaa paremman kontrollin ja on vakiintunut käytäntö.
+const httpSrv = http.createServer(app);
+// Luodaan uusi Socket.IO-palvelininstanssi ja liitetään se HTTP-palvelimeen.
 const io = new Server(httpSrv, {
+  // Socket.IO tarvitsee oman CORS-määrityksensä, koska se tekee aluksi
+  // HTTP-pyyntöjä (polling) ennen mahdolliseen WebSocket-yhteyteen siirtymistä.
   cors: {
-    origin: WHITELIST,
+    origin: WHITELIST,     // Sallitut alkuperät, sama kuin Expressillä.
     methods: ["GET", "POST"]
   }
 });
 
 
 /* ---- Socket-tapahtumat ------------------------------ */
+// MITÄ: Tämä lohko määrittelee, miten palvelin reagoi saapuviin reaaliaikaisiin
+// viesteihin client-selaimilta. "connection"-tapahtuma on pääsisäänkäynti,
+// ja sen sisällä määritellään kuuntelijat kaikille muille pelin aikana
+// lähetettäville viesteille (esim. "join_game", "player_command").
 io.on("connection", socket => {
+  // Jokainen uusi selainyhteys saa uniikin socket.id:n.
   console.log("🔌  Client connected", socket.id);
   
-  // Tallenna pelaajan peli-ID muistiin join_game yhteydessä
+
+  /**
+   * KUUNTELIJA: 'join_game'
+   * MITÄ: Liittää clientin socketin tiettyyn pelihuoneeseen (`gameId`).
+   * MIKSI: Tämä on kriittinen vaihe, jossa client "astuu sisään" peliin.
+   * 1.  Varmistaa, että peli on olemassa ja aktiivinen (`managers.get(gameId)`).
+   * 2.  Tallentaa ihmispelaajan socket-yhteyden (`humanPlayerSockets`), jotta tiedetään,
+   * kuka pelin "isäntä" on ja kenen yhteyden katkeaminen päättää pelin.
+   * 3.  Liittää socketin Socket.IO-huoneeseen, mikä mahdollistaa tehokkaan
+   * viestinvälityksen vain tämän pelin pelaajille.
+   * 4.  Käynnistää pelisilmukan (`gm.start()`), jos se ei ole jo käynnissä.
+   */
   socket.on("join_game", async ({ gameId }) => {
     try {
+      // Validoi, että annettu gameId on kelvollinen MongoDB ObjectId.
       if (!mongoose.Types.ObjectId.isValid(gameId)) {
         throw new Error("Invalid gameId provided to join_game.");
       }
 
+      // Varmista, että pelille on olemassa aktiivinen GameManager muistissa.
       const gm = managers.get(gameId);
       if (!gm) {
         throw new Error("Game manager not found. Cannot join.");
       }
-      
-      // Tallenna human player socket
+
+      // Tallenna tämän ihmispelaajan socket-yhteys.
       humanPlayerSockets.set(gameId, socket.id);
-      
+
+      // Liitä socket huoneeseen.
       socket.join(gameId);
       console.log(`👥  Socket ${socket.id} successfully joined room ${gameId}`);
 
+      // Jos pelisilmukka ei ole käynnissä, käynnistä se nyt kun pelaaja on liittynyt.
       if (!gm.isRunning() && !gm.isPaused()) {
         console.log(`🚀 Starting game ${gameId} tick loop as player has joined.`);
         gm.start();
       }
-
+      // Lähetä onnistumisvahvistus takaisin clientille.
       socket.emit("joined", { success: true });
 
     } catch (err) {
@@ -100,11 +192,22 @@ io.on("connection", socket => {
     }
   });
 
-  // PARANNETTU disconnect-käsittelijä
+
+  /**
+   * KUUNTELIJA: 'disconnecting'
+   * MITÄ: Suorittaa siivoustoimenpiteet, kun ihmispelaajan yhteys katkeaa.
+   * MIKSI: Tämä on elintärkeää palvelimen resurssienhallinnalle. Jos ihmispelaaja
+   * poistuu, peli ei voi jatkua. Tämä logiikka pysäyttää GameManager-instanssin,
+   * poistaa sen muistista (`managers.delete`), siivoaa socket-viittaukset ja
+   * merkitsee pelin tietokannassa keskeytetyksi (`aborted`). Tämä estää
+   * "zombie-pelien" jäämisen pyörimään palvelimelle. `disconnecting`-event on
+   * parempi kuin `disconnect`, koska se antaa pääsyn huoneisiin, joissa socket oli,
+   * ennen kuin se automaattisesti poistetaan niistä.
+   */
   socket.on("disconnecting", async () => {
     console.log(`⚡️ Client disconnected: ${socket.id}`);
 
-    // Etsi kaikki pelit joissa tämä socket on mukana
+    // Etsi, oliko poistuva socket ihmispelaajan socket jossakin pelissä.
     for (const [gameId, humanSocketId] of humanPlayerSockets.entries()) {
       // Tarkista onko tämä human player
       if (humanSocketId === socket.id) {
@@ -112,7 +215,7 @@ io.on("connection", socket => {
         
         const gm = managers.get(gameId);
         if (gm) {
-          // Pysäytä peli välittömästi
+          // Pysäytä pelisilmukka ja poista peli aktiivisten pelien listalta.
           gm.stop();
           managers.delete(gameId);
           humanPlayerSockets.delete(gameId);
@@ -122,10 +225,9 @@ io.on("connection", socket => {
           for (const s of socketsInRoom) {
             s.leave(gameId);
           }
-          
           console.log(`   - Game ${gameId} stopped and all sockets removed from room.`);
 
-          // Merkitse peli päättyneeksi
+          // Merkitse peli päättyneeksi tietokannassa.
           Game.findByIdAndUpdate(gameId, {
             status: 'aborted',
             finishedAt: new Date()
@@ -145,14 +247,17 @@ io.on("connection", socket => {
   });
 
 
-  /* Player command handling */
+  /**
+   * KUUNTELIJA: 'player_command'
+   * MITÄ: Vastaanottaa ja käsittelee kaikki pelaajan pelin aikana tekemät komennot.
+   * MIKSI: Tämä on keskitetty reitti, jonka kautta client vaikuttaa pelin tilaan.
+   * Se etsii oikean GameManager-instanssin ja välittää komennon sille
+   * `_applyActions`-metodin kautta, joka toimii auktoriteettina ja suorittaa
+   * varsinaisen pelilogiikan (esim. resurssien vähennys, jonoon lisääminen).
+   */
   socket.on("player_command", async (command) => {
     try {
-      //console.log("🎮 Player command received:", command);
-      
-      // Find which game this socket belongs to
       const gameId = command.gameId; 
-      
       if (!gameId) {
         console.error("❌ No active game found for socket", socket.id);
         return;
@@ -164,7 +269,7 @@ io.on("connection", socket => {
         return;
       }
       
-      // Process the command
+      // Välitä komento GameManagerille suoritettavaksi.
       await gm._applyActions([command]);
       
     } catch (err) {
@@ -173,6 +278,14 @@ io.on("connection", socket => {
     }
   });
 
+
+    /**
+   * KUUNTELIJA: 'set_game_speed', 'pause_game', 'resume_game'
+   * MITÄ: Käsittelee pelin metatason kontrolleja, kuten nopeutta ja pausetusta.
+   * MIKSI: Antaa pelaajalle kontrollin pelin kulkuun. Nämä komennot eivät muuta
+   * pelin tilaa suoraan, vaan kutsuvat GameManagerin metodeja (`setSpeed`, `pause`,
+   * `resume`), jotka hallinnoivat pelisilmukan ajoitusta.
+   */
   socket.on("set_game_speed", async ({ gameId, speed }) => {
       try {
           const gm = managers.get(gameId);
@@ -209,8 +322,16 @@ io.on("connection", socket => {
       }
   });
 
-  // Render.com sulkee yhteyden 15 minuutin kuluttua ilman http-kutsua. 
-  // Herätellään palvelinta 14 min välein (client.js:ssä socket.io -osiossa)
+  /**
+   * ----- EI TOIMI ODOTETUSTI: RENDER.com vaatii maksullisen instanssin,
+   * jotta palvelin pysyy pystyssä yli 15 minuuttia. Tämä EI korjannut tilannetta
+   * REAALIAIKAINEN ENDPOINT: '/api/keep-alive'
+   * MITÄ: Yksinkertainen HTTP-reitti, joka vastaa "olen elossa" -viestillä.
+   * MIKSI: Ilmaiset Render.com-instanssit "nukahtavat" 15 minuutin käyttämättömyyden
+   * jälkeen. Vaikka Socket.IO-yhteys on auki, Render ei välttämättä tulkitse sitä
+   * HTTP-aktiivisuudeksi. Client lähettää säännöllisesti pyynnön tähän reittiin
+   * estääkseen palvelimen nukahtamisen kesken pelin.
+   */
   app.use(cors({
     origin: WHITELIST,
     methods: ["GET", "POST", "OPTIONS"],
@@ -224,13 +345,37 @@ io.on("connection", socket => {
 
 });
 
+
 /* ---------------------- REST API --------------------- */
-/** Luo uusi peli */
+
+/**
+ * ENDPOINT: POST /api/games/new
+ * MITÄ: Luo täysin uuden pelisession ja palauttaa sen alkutilan.
+ * MIKSI: Tämä on ainoa reitti, jonka kautta pelaaja voi aloittaa uuden pelin.
+ * Se on vastuussa koko prosessista alusta loppuun.
+ *
+ * TÄRKEÄ LOGIIKKA:
+ * 1.  VANHOJEN PELIEN SIIVOUS: Ennen uuden pelin luontia, endpoint etsii ja
+ * tuhoaa kaikki saman pelaajan (saman session ID:n) aiemmat, mahdollisesti
+ * kesken jääneet pelit. Tämä on kriittistä resurssien vapauttamiseksi:
+ * se pysäyttää vanhat pelisilmukat, poistaa GameManagerit muistista ja
+ * merkitsee vanhat pelit tietokantaan hylätyiksi.
+ * 2.  UUDEN PELIN LUONTI: Luo uuden GameManager-instanssin ja kutsuu sen
+ * `createWorld`-metodia, joka generoi proseduraalisesti koko pelimaailman
+ * (pelaajat, tähdet, yhteydet).
+ * 3.  RESURSSIEN HALLINTA: Tallentaa juuri luodun GameManager-instanssin
+ * palvelimen muistissa olevaan `managers`-välimuistiin, jotta pelitapahtumia
+ * voidaan käsitellä nopeasti ilman jatkuvia tietokantahakuja.
+ * 4.  VASTAUS CLIENTILLE: Palauttaa HTTP 201 -vastauksena koko pelin alkutilan
+ * (initialState), jonka client käyttää 3D-maailman rakentamiseen.
+ */
 app.post("/api/games/new", async (req, res) => {
   try {
-    const playerId = req.sessionID; // Uniikki selain-istunnon tunniste
+    // Käytetään express-sessionin luomaa uniikkia ID:tä pelaajan tunnistamiseen.
+    const playerId = req.sessionID; 
 
-    // Etsi KAIKKI tähän sessioon liittyvät vanhat pelit (sekä playing että lobby)
+    // --- VAIHE 1: Siivoa vanhat, kesken jääneet pelit ---
+    // Etsi kaikki tämän session ID:n omistamat pelit, jotka ovat vielä "playing" tai "lobby" -tilassa.
     const existingGames = await Game.find({ 
       status: { $in: ["playing", "lobby"] },
       "settings.playerId": playerId
@@ -239,23 +384,23 @@ app.post("/api/games/new", async (req, res) => {
     if (existingGames.length > 0) {
       console.log(`🔄 Found ${existingGames.length} old game(s) for player ${playerId.slice(-6)}. Cleaning up...`);
       
-      // Käytä for-of looppia async/await kanssa
+      // Käydään läpi ja tuhotaan kaikki vanhat pelit.
       for (const game of existingGames) {
         const oldGameId = game._id.toString();
         
-        // Pysäytä ja poista GameManager
+        // Pysäytä ja poista muistissa oleva GameManager, jos sellainen on.
         const oldGm = managers.get(oldGameId);
         if (oldGm) {
           console.log(`   - Stopping game ${oldGameId}`);
-          oldGm.stop(); // Pysäyttää setInterval-loopin
-          oldGm.removeAllListeners(); // Poista kaikki event listenerit
+          oldGm.stop();                           // Pysäyttää pelisilmukan.
+          oldGm.removeAllListeners();             // Poistaa event listenerit (esim. 'abandoned').
           managers.delete(oldGameId);
         }
         
-        // Poista human player socket mapping
+        // Poista pelaajan socket-viittaus
         humanPlayerSockets.delete(oldGameId);
         
-        // Poista kaikki socketit vanhasta huoneesta
+        // Varmista, että kaikki socketit poistetaan vanhasta pelihuoneesta.
         try {
           const socketsInOldRoom = await io.in(oldGameId).fetchSockets();
           for (const s of socketsInOldRoom) {
@@ -266,7 +411,7 @@ app.post("/api/games/new", async (req, res) => {
           console.error(`   - Error removing sockets from room:`, err);
         }
         
-        // Merkitse peli päättyneeksi
+        // Merkitse peli tietokannassa keskeytetyksi.
         game.status = 'aborted';
         game.finishedAt = new Date();
         await game.save();
@@ -275,31 +420,32 @@ app.post("/api/games/new", async (req, res) => {
     }
     // --- SIIVOUS PÄÄTTYY ---
 
-    /* Luo uusi peli */
+    // --- VAIHE 2: Luo uusi peli ---
     console.log(`✨ Creating new game for player ${playerId.slice(-6)}.`);
     
-    // Pelin asetukset (voit muokata näitä tai ottaa req.body:stä)
+    // Kerätään pelin asetukset clientin lähettämästä pyynnöstä (req.body).
     const gameConfig = {
       humanName: req.body.playerName || "Player",
       humanColor: req.body.playerColor || "#007bff",
       numAiPlayers: req.body.numAiPlayers|| 1,
       aiColors: req.body.aiColors || ["#dc3545", "#28a745", "#ffc107", "#17a2b8"],
       starCount: req.body.starCount || 120,
-      playerId: playerId,
+      playerId: playerId,                   // Tärkeä: liitetään session ID peliin.
       lobbyHost: "server",
       speed: req.body.speed || 1
     };
 
-    // Luo GameManager ja maailma
+    // Luo uusi GameManager ja sen sisällä koko pelimaailma.
     const gm = new GameManager({ io });
     const result = await gm.createWorld(gameConfig);
     const newGameId = result.initialState.gameId;
 
-    // Kuuntele jos peli hylätään (ei pelaajia)
+    // Asetetaan kuuntelija 'abandoned'-tapahtumalle. Tämä laukeaa, jos peli
+    // luodaan, mutta kukaan ei liity siihen tietyn ajan kuluessa.
     gm.on('abandoned', async (abandonedGameId) => {
       console.log(`🗑️  Game ${abandonedGameId} abandoned - cleaning up`);
       
-      // Poista managereista ja socket-mappauksesta
+      // Suoritetaan siivouslogiikka.
       managers.delete(abandonedGameId);
       humanPlayerSockets.delete(abandonedGameId);
       
@@ -322,12 +468,12 @@ app.post("/api/games/new", async (req, res) => {
       });
     });
 
-    // Tallenna GameManager aktiivisten pelien listaan
+    // Tallennetaan uusi, aktiivinen GameManager muistiin nopeaa käyttöä varten.
     managers.set(newGameId.toString(), gm);
     
     console.log(`✅ New game ${newGameId} created successfully`);
 
-    // Palauta pelin alkutila clientille
+    // Palautetaan koko pelin alkutila clientille, joka rakentaa sen perusteella näkymän.
     res.status(201).json(result);
     
   } catch (err) {
@@ -338,17 +484,31 @@ app.post("/api/games/new", async (req, res) => {
 
 
 /* ---- Cleanup scheduled job ---- */
+
+/**
+ * AJASTETTU TEHTÄVÄ: Siivoaa tietokannasta vanhat ja hylätyt pelit.
+ * MITÄ: Tämä `setInterval`-funktio suoritetaan automaattisesti 10 minuutin välein.
+ * Se tekee kaksi asiaa:
+ * 1.  Poistaa kokonaan kaikki yli 24 tuntia vanhat pelit, jotka ovat edelleen
+ * 'lobby'-tilassa (eli niitä ei koskaan aloitettu kunnolla).
+ * 2.  Merkitsee 'aborted'-tilaan kaikki pelit, joita ei ole tallennettu
+ * (päivitetty) viimeiseen 24 tuntiin.
+ * MIKSI: Tämä on tärkeä ylläpitotoiminto, joka pitää tietokannan siistinä
+ * ja estää sen täyttymisen vanhasta, tarpeettomasta datasta (esim.
+ * keskeytetyistä testeistä tai hylätyistä peleistä).
+ */
 setInterval(async () => {
   try {
+    // Määritetään aikaraja: 24 tuntia menneisyydessä.
     const cutoffTime = new Date(Date.now() - 24 * 60 * 60 * 1000); // 24h vanha
     
-    // Poista vanhat "lobby" tilassa olevat pelit
+    // Poista vanhat "lobby"-tilassa olevat pelit.
     const deletedLobby = await Game.deleteMany({
       status: 'lobby',
       createdAt: { $lt: cutoffTime }
     });
     
-    // Merkitse vanhat aktiiviset pelit päättyneiksi
+    // Merkitse vanhat, "jumiin jääneet" aktiiviset pelit keskeytetyiksi.
     const aborted = await Game.updateMany(
       {
         status: 'playing',
@@ -362,15 +522,24 @@ setInterval(async () => {
       }
     );
     
+    // Kirjataan siivouksen tulokset konsoliin, jos jotain tehtiin.
     if (deletedLobby.deletedCount > 0 || aborted.modifiedCount > 0) {
       console.log(`🧹 Cleaned up: ${deletedLobby.deletedCount} lobby games deleted, ${aborted.modifiedCount} games aborted`);
     }
   } catch (err) {
     console.error('Cleanup error:', err);
   }
-}, 10 * 60 * 1000); // 10 min
+}, 10 * 60 * 1000); // Suoritetaan 10 minuutin välein.
 
 
 
 /* ---------------------------------------------------- */
+/**
+ * KÄYNNISTYS: Käynnistää HTTP-palvelimen kuuntelemaan pyyntöjä.
+ * MITÄ: Tämä on tiedoston viimeinen ja yksi tärkeimmistä komennoista. Se sitoo
+ * luodun http-palvelimen (johon myös Socket.IO on liitetty) määriteltyyn
+ * porttiin ja alkaa hyväksyä saapuvia yhteyksiä.
+ * MIKSI: Ilman tätä kutsua palvelin ei koskaan käynnistyisi eikä olisi
+ * saavutettavissa internetistä tai paikallisverkosta.
+ */
 httpSrv.listen(PORT, () => console.log(`🚀  Server running on :${PORT}`));
