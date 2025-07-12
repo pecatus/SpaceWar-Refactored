@@ -63,10 +63,6 @@ const gameSchema = new mongoose.Schema({
   createdAt: {
     type   : Date,
     default: Date.now,
-    // Määrittelee MongoDB:n TTL (Time-To-Live) -indeksin. Tämä komento poistaa
-    // automaattisesti kaikki dokumentit, jotka ovat yli 24 tuntia vanhoja.
-    // Erittäin tehokas tapa siivota vanhat, hylätyt pelit tietokannasta.
-    expires: '24h'
   },
 
   startedAt   : Date,                       // Aikaleima, kun pelin ensimmäinen tick suoritettiin.

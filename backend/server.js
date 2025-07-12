@@ -487,46 +487,47 @@ app.post("/api/games/new", async (req, res) => {
 /* ---- Cleanup scheduled job ---- */
 
 /**
- * AJASTETTU TEHTÄVÄ: Siivoaa tietokannasta vanhat ja hylätyt pelit.
+ * AJASTETTU TEHTÄVÄ: Siivoaa tietokannasta vanhat ja hylätyt pelit ja kaiken niihin liittyvän datan.
  * MITÄ: Tämä `setInterval`-funktio suoritetaan automaattisesti 10 minuutin välein.
- * Se tekee kaksi asiaa:
- * 1.  Poistaa kokonaan kaikki yli 24 tuntia vanhat pelit, jotka ovat edelleen
- * 'lobby'-tilassa (eli niitä ei koskaan aloitettu kunnolla).
- * 2.  Merkitsee 'aborted'-tilaan kaikki pelit, joita ei ole tallennettu
- * (päivitetty) viimeiseen 24 tuntiin.
- * MIKSI: Tämä on tärkeä ylläpitotoiminto, joka pitää tietokannan siistinä
- * ja estää sen täyttymisen vanhasta, tarpeettomasta datasta (esim.
- * keskeytetyistä testeistä tai hylätyistä peleistä).
+ * Se etsii kaikki yli 24 tuntia vanhat pelit ja poistaa ne sekä kaikki niihin
+ * viittaavat Player-, Star- ja Ship-dokumentit.
+ * MIKSI: Tämä on keskitetty ja luotettava tapa pitää tietokanta siistinä ja
+ * estää "orpojen" dokumenttien kertyminen. Se takaa datan eheyden paremmin
+ * kuin yksittäiset TTL-indeksit.
  */
 setInterval(async () => {
   try {
-    // Määritetään aikaraja: 24 tuntia menneisyydessä.
     const cutoffTime = new Date(Date.now() - 24 * 60 * 60 * 1000); // 24h vanha
     
-    // Poista vanhat "lobby"-tilassa olevat pelit.
-    const deletedLobby = await Game.deleteMany({
-      status: 'lobby',
-      createdAt: { $lt: cutoffTime }
-    });
-    
-    // Merkitse vanhat, "jumiin jääneet" aktiiviset pelit keskeytetyiksi.
-    const aborted = await Game.updateMany(
-      {
-        status: 'playing',
-        lastSavedAt: { $lt: cutoffTime }
-      },
-      {
-        $set: { 
-          status: 'aborted',
-          finishedAt: new Date()
-        }
-      }
-    );
-    
-    // Kirjataan siivouksen tulokset konsoliin, jos jotain tehtiin.
-    if (deletedLobby.deletedCount > 0 || aborted.modifiedCount > 0) {
-      console.log(`🧹 Cleaned up: ${deletedLobby.deletedCount} lobby games deleted, ${aborted.modifiedCount} games aborted`);
+    // 1. Etsi kaikki pelit, jotka ovat yli 24h vanhoja.
+    // Haetaan vain ID:t, koska emme tarvitse muuta dataa, mikä tekee kyselystä tehokkaamman.
+    const oldGames = await Game.find({
+        createdAt: { $lt: cutoffTime }
+    }).select('_id').lean();
+
+    if (oldGames.length > 0) {
+        const gameIdsToDelete = oldGames.map(g => g._id);
+        console.log(`🧹 Found ${gameIdsToDelete.length} old game(s) to clean up.`);
+
+        // 2. Rakenna lupaukset kaikkien peliin liittyvien dokumenttien poistamiseksi.
+        const playerPromise = Player.deleteMany({ gameId: { $in: gameIdsToDelete } });
+        const starPromise = Star.deleteMany({ gameId: { $in: gameIdsToDelete } });
+        const shipPromise = Ship.deleteMany({ gameId: { $in: gameIdsToDelete } });
+
+        // 3. Poista itse Game-dokumentit.
+        const gamePromise = Game.deleteMany({ _id: { $in: gameIdsToDelete } });
+
+        // Aja kaikki poistot rinnakkain ja odota niiden valmistumista.
+        const [playerResult, starResult, shipResult, gameResult] = await Promise.all([
+            playerPromise,
+            starPromise,
+            shipPromise,
+            gamePromise
+        ]);
+
+        console.log(`   - Deleted: ${gameResult.deletedCount} games, ${playerResult.deletedCount} players, ${starResult.deletedCount} stars, ${shipResult.deletedCount} ships.`);
     }
+
   } catch (err) {
     console.error('Cleanup error:', err);
   }
