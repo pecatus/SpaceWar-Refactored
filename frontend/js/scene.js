@@ -1220,7 +1220,20 @@ function onCanvasRightClick(event) {
 
     if (window.isPaused) return;
     if (selectedShips.length === 0) return;
+
+    // Tarkistetaan, että KAIKKI valitut alukset ovat 'orbiting'-tilassa.
+    const allShipsAreOrbiting = selectedShips.every(virtualShip => {
+        // Haetaan aluksen tila sen userData-objektista.
+        const shipData = virtualShip.userData.shipData;
+        return shipData && shipData.state === 'orbiting';
+    });
     
+    // Jos yksikin alus on jo liikkeellä, perutaan koko komento.
+    if (!allShipsAreOrbiting) {
+        // Tähän voisi lisätä pienen "error"-äänen tai visuaalisen palautteen.
+        return; 
+    }
+
     mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
     mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
     

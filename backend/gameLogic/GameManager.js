@@ -1241,6 +1241,13 @@ async _applyActions(actions) {
         if (!toStar) {
             continue;       // Jos kohdetta ei löydy, perutaan.
         }
+
+        // Hyväksy liikkumiskomento VAIN, jos alus on kiertoradalla.
+        if (sh.state !== 'orbiting') {
+            // Jos alus on jo liikkeellä ('moving') tai tekemässä muuta,
+            // ohita tämä komento hiljaisuudessa.
+            continue; // Siirry käsittelemään seuraavaa actionia.
+        }
         
         // Tarkista mistä lähtee - voi olla parentStarId TAI nykyinen sijainti jos orbiting
         let fromStarId = act.fromStarId || sh.parentStarId;
