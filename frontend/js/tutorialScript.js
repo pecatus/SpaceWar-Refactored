@@ -1,12 +1,19 @@
 // frontend/tutorialScript.js
 export const tutorialSteps = {
-  'START': {
+'START': {
     speaker: 'Elara',
-    text: "Systems online!\n\nWelcome, Commander. I am Elara, your advisor for economic and scientific matters.\n\nFirst, a strategic overview from General Valerius.",
+    text: "Welcome, Commander. I am Elara. Before we proceed, let's calibrate your command view. Familiarity with the interface is essential for what lies ahead.\n\n**Camera Controls:**\n• **Rotate:** Hold the **Left Mouse Button** and drag.\n• **Pan:** Hold the **Right Mouse Button** and drag.\n• **Zoom:** Use the **Mouse Wheel**.",
     highlightSelector: null,
     trigger: { event: 'GAME_START' },
-    next: 'valeriusOpening'
-  },
+    next: 'elaraIntroducesValerius' 
+},
+'elaraIntroducesValerius': {
+    speaker: 'Elara',
+    text: "Now, for a strategic overview of our situation, I give you General Valerius.",
+    highlightSelector: null,
+    trigger: { event: 'TUTORIAL_CONTINUE' },
+    next: 'valeriusOpening' // Ohjaa Valeriuksen puheeseen
+},
   'valeriusOpening': {
     speaker: 'Valerius',
     text: "I am General Valerius. Elara can handle the pleasantries; I deal in the harsh reality of our situation. And that reality is dire.\n\nThe Galactic Empire is a memory, shattered by its own creations – a cascade of rogue AIs that now hunt the last remnants of humanity.\n\nWe are that remnant, Commander.\n\nOur survival depends on the strength of our fleets and the conviction of our commands.",
@@ -21,13 +28,13 @@ export const tutorialSteps = {
     trigger: { event: 'TUTORIAL_CONTINUE' },
     next: 'elaraFinalPrompt'
   },
-  'elaraFinalPrompt': {
-    speaker: 'Elara',
-    text: "Now, with the temporal controls calibrated, it's time to establish a primary command link.\n\nFocus on our homeworld. Select it to bring its status onto your command display.",
-    highlightSelector: null,
-    trigger: { event: 'TUTORIAL_CONTINUE' },
-    next: 'homeworldSelected'
-  },
+    'elaraFinalPrompt': {
+        speaker: 'Elara',
+        text: "Now, with the temporal controls calibrated, it's time to establish a primary command link.\n\nFocus on our homeworld. Select it to bring its status onto your command display.\n\nAs you navigate the galaxy, remember that you can also **double-click** any star to quickly center the camera on it.",
+        highlightSelector: null, 
+        trigger: { event: 'TUTORIAL_CONTINUE' },
+        next: 'homeworldSelected' 
+    },
   'homeworldSelected': {
         speaker: 'Elara',
         text: "Excellent. This panel shows our current resources. As you can see, our economy is fragile.\n\nThe key to unlocking this world's full potential is its core Infrastructure. Each time we reinforce these planetary systems, we increase the capacity for both population and industrial complexes.\n\nI recommend we begin developing our homeworld immediately.",
