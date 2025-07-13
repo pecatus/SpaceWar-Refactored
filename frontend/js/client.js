@@ -32,6 +32,8 @@ import {
     focusOnGroup
 } from './scene.js';
 
+import { tutorialSteps } from './tutorialScript.js';  // Tutorial-steppien import
+
 
 /* ========================================================================== */
 /* AUDIO STATE & NODES                                                       */
@@ -43,10 +45,13 @@ let masterVolume;                               // Pää-äänenvoimakkuuden sä
 let ambientHum, ambientFilter, ambientPanner;   // Taustahuminan (drone) luomiseen käytettävät äänisolmut.
 let synthButtonClick;                           // Syntetisaattori nappien klikkausäänelle.
 let synthButtonHoverEffect;                     // Syntetisaattori hiiren hover-äänelle.
+let synthTeletype;                              // Lennätinääni tutorial-ikkunan teksteille
 let lastButtonClickTime = 0;                    // Aikaleima viimeisimmälle klikkaukselle (estää äänten "räminää").
 let lastButtonHoverTime = 0;                    // Aikaleima viimeisimmälle hoverille.
+let lastTeletypeTime = 0;                       // Aikaleima lennätinäänelle
 const BUTTON_CLICK_COOLDOWN = 0.05;             // Minimiodotusaika (sekunteina) klikkausäänten välillä.
 const BUTTON_HOVER_COOLDOWN = 0.03;             // Minimiodotusaika hover-äänten välillä.
+const TELETYPE_COOLDOWN = 0.01;                 // Minimiodotusaika lennätinäänelle
 
 
 /* ========================================================================== */
@@ -65,6 +70,33 @@ const DEFAULT_AI_COLORS = [
     0xffc107, // Yellow
     0x6f42c1  // Purple
 ];
+
+
+/**
+ * MITÄ: Säilyttää tutoriaalin dynaamisen tilan pelisession aikana.
+ * MIKSI: Tämä keskitetty objekti on tutoriaalijärjestelmän "muisti". Se seuraa,
+ * mitä pelaaja on jo nähnyt ja mikä oli viimeisin tapahtuma, mikä mahdollistaa
+ * joustavan, tapahtumapohjaisen logiikan ilman, että viestejä toistetaan turhaan.
+ */
+const tutorialState = {
+    // Kertoo, onko koko tutoriaalijärjestelmä aktiivinen. Voidaan asettaa epätodeksi esim. asetuksista.
+    isActive: true,
+    
+    // Set, joka sisältää kaikkien jo näytettyjen tutoriaalivaiheiden ID:t.
+    // Tämä on järjestelmän ydintoiminto, joka estää saman viestin näyttämisen useaan kertaan.
+    completedSteps: new Set(),
+    
+    // Viimeisimmän näytetyn tutoriaalivaiheen ID. Tarvitaan lyhyiden, peräkkäisten
+    // dialogien (esim. Elara -> Valerius) toteuttamiseen `TUTORIAL_CONTINUE`-tapahtumalla.
+    lastStepId: null, 
+    
+    // Set, joka pitää kirjaa niistä alustyypeistä, joiden 'ensimmäinen rakennettu' -viesti on
+    // jo näytetty. Varmistaa, että viesti laukeaa vain kerran per alustyyppi.
+    shownFirstShipMessages: new Set() 
+};
+
+let tutorialMessageQueue = [];      // Taulukko, joka toimii odottavien viestien jonona.
+let isTutorialMessageVisible = false; // Lippu, joka kertoo, onko viesti-ikkuna tällä hetkellä käytössä.
 
 
 /**
@@ -464,6 +496,13 @@ function setupEventListeners() {
     document.addEventListener('keydown', (event) => {
         // --- ESC: Paussi / Päävalikko ---
         if (event.key === 'Escape') {
+            // Sulkee tutoriaalin AINA kun ESC-näppäintä painetaan.
+            // Tämä suoritetaan ennen varsinaista paussi/jatka-logiikkaa.
+            const tutorialPanel = document.getElementById('tutorialPanel');
+            if (tutorialPanel && tutorialPanel.style.display !== 'none') {
+                tutorialPanel.style.display = 'none';
+                highlightElement(null); // Poistaa myös mahdolliset korostukset.
+            }
             // Jos olemme pelitilassa, siirry paussivalikkoon (eli päävalikkoon)
             if (uiState === 'playing') {
                 pauseGame();        // Kerro serverille, että peli on paussilla
@@ -691,6 +730,13 @@ function initializeAudioNodes() {
         envelope: { attack: 0.001, decay: 0.005, sustain: 0, release: 0.03 }
     }).connect(masterVolume);
 
+    // Lyhyt, korkea ja terävä "tikitys" lennätinefektille.
+    synthTeletype = new Tone.Synth({
+        oscillator: { type: 'sine' }, // Korkea sini-aalto
+        volume: -18,
+        envelope: { attack: 0.001, decay: 0.05, sustain: 0, release: 0.05 }
+    }).connect(masterVolume);
+
     // --- Ambient-taustadronen luonti ---
     // Luo stereopannerin, joka liikuttaa ääntä hitaasti vasemman ja oikean kanavan välillä.
     ambientPanner = new Tone.Panner(0).connect(masterVolume);
@@ -758,6 +804,23 @@ function playButtonHoverSound() {
         synthButtonHoverEffect.triggerAttackRelease("128n", now); 
         lastButtonHoverTime = now;
     } catch (e) {
+    }
+}
+
+/**
+ * @summary Soittaa lennättimen "tikitys"-äänen.
+ * @description Sisältää erittäin lyhyen cooldownin, jotta äänet eivät puuroudu.
+ */
+function playTeletypeSound() {
+    if (!audioContextStarted || !synthTeletype) return;
+    const now = Tone.now();
+    if (now - lastTeletypeTime < TELETYPE_COOLDOWN) return;
+    try {
+        // Soitetaan korkea C-nuotti (C5) erittäin lyhyenä.
+        synthTeletype.triggerAttackRelease("C5", "128n", now);
+        lastTeletypeTime = now;
+    } catch (e) {
+        //
     }
 }
 
@@ -991,7 +1054,7 @@ async function handleStartGame() {
         GAME_SPEED = 1;
         window.GAME_SPEED = 1;
         updatePauseUI(); // Päivitä pause UI pois
-        
+
         // Reset speed buttons
         document.querySelectorAll('#speedPanel button').forEach(btn => btn.classList.remove('active'));
         document.querySelector('#speedPanel button[data-speed="1"]')?.classList.add('active');
@@ -1034,7 +1097,14 @@ async function handleStartGame() {
         // Liitytään WebSocket-huoneeseen, jotta aletaan vastaanottaa reaaliaikaisia päivityksiä.
         // kerro serverille, että se voi käynnistää pelin.
         socket.emit("join_game", { gameId: result.initialState.gameId });
-        
+
+        // Nollaa ja käynnistä tutoriaali uuden mallin mukaisesti
+        tutorialState.isActive = true;
+        tutorialState.completedSteps.clear(); // Tyhjennä muistilista vanhoista vaiheista
+        tutorialState.lastStepId = null; // Nollaa viimeisin vaihe
+        tutorialState.shownFirstShipMessages.clear(); // Nollaa "ensimmäiset alukst"-setti     
+        advanceTutorial('GAME_START');        // Käynnistä tutoriaali alusta
+
     } catch (error) {
         alert("Failed to start game: " + error.message);
         // Varmistetaan, että nappeja voi taas käyttää, jos käynnistys epäonnistui
@@ -1264,6 +1334,14 @@ function handleStarSelection(starData) {
     selectedStar = starData; 
     // Kutsutaan funktiota, joka rakentaa ja näyttää planeettavalikon.
     showPlanetMenu(starData);
+    // Laukaise tutoriaalitapahtuma, kun tähti valitaan.
+    // Välitetään tieto, onko valittu tähti pelaajan oma.
+    if (tutorialState.isActive) {
+        advanceTutorial('STAR_SELECTED', { 
+            isPlayerHomeworld: starData.isHomeworld && isPlayerOwned(starData) 
+        });
+    }
+    
 }
 
 
@@ -1664,6 +1742,11 @@ function updateButtonStates(starData) {
             }
         }
     });
+
+    // Lopuksi kutsu, joka tarkastaa, avautuiko uusia mahdollisuuksia
+    if (tutorialState.isActive) {
+        checkUnlockTriggers(starData);
+    }
 }
 
 
@@ -2427,16 +2510,68 @@ function canAfford(cost) {
 
 
 /**
- * MITÄ: Käsittelee palvelimelta saapuvan `diff`-paketin, joka sisältää listan
- * pelitilan muutoksista, ja päivittää käyttöliittymän vastaavasti.
+ * MITÄ: Käsittelee palvelimelta saapuvan `diff`-paketin ja päivittää käyttöliittymän,
+ * erityisesti rikastamalla ja välittämällä tietoa tutoriaalijärjestelmälle.
  * MIKSI: Tämä on keskeinen funktio clientin ja serverin synkronoinnissa.
  * Käsittelemällä pieniä muutospaketteja (`diff`) koko pelitilan sijaan
  * säästetään kaistanleveyttä ja tehdään päivityksistä tehokkaampia.
  * @param {Array<object>} diff - Taulukko toiminto-objekteja, jotka kuvaavat pelitilan muutoksia.
  */
 function updateUIFromDiff(diff) {
-    // Käy läpi kaikki palvelimen lähettämät muutokset
+    // Käydään läpi kaikki palvelimen lähettämät muutokset yksitellen.
     diff.forEach(action => {
+
+        // =================================================================
+        // TUTORIAALIN DATAN ESIKÄSITTELY
+        // =================================================================
+        // Tässä osiossa luodaan ja "rikastetaan" payload-objekti, joka välitetään
+        // tutoriaalijärjestelmälle. Se sisältää sekä palvelimen datan että
+        // client-puolella pääteltyä lisätietoa.
+
+        // 1. Luodaan kopio palvelimen lähettämästä datasta, jotta emme muokkaa alkuperäistä.
+        let tutorialPayload = { ...action }; 
+
+        // 2. Selvitetään ja lisätään payload-objektiin tieto siitä, tekikö pelaaja vai AI tämän toimenpiteen.
+        // Tämä on kriittinen tarkistus, jotta tutoriaali ei reagoi tekoälyn toimiin.
+        tutorialPayload.isPlayerAction = String(actorId(action)) === String(myPlayerId);
+
+        // 3. ERIKOISKÄSITTELY: Lisätään 'firstOfType' -lippu ensimmäiselle rakennetulle alustyypille.
+        // Tämä logiikka ajetaan vain, kun kyseessä on pelaajan rakentama alus.
+        if (action.action === 'SHIP_SPAWNED' && tutorialPayload.isPlayerAction) {
+            // Tarkistetaan tilasta, olemmeko jo näyttäneet viestin tämän tyyppisestä aluksesta.
+            if (!tutorialState.shownFirstShipMessages.has(action.type)) {
+                // Jos emme ole, lisätään payload-objektiin erityinen 'firstOfType: true' -lippu.
+                // tutorialScript.js käyttää tätä lippua tietääkseen, milloin "ensimmäisen hävittäjän" viesti näytetään.
+                tutorialPayload.firstOfType = true;
+                // Merkitään tämä alustyyppi "nähdyksi", jotta viesti ei toistu.
+                tutorialState.shownFirstShipMessages.add(action.type);
+            }
+        }
+        
+        // HUOM: Alla oleva if/else if -rakenne on osittain päällekkäinen aiemmin tehdyn
+        // isPlayerAction-määrityksen kanssa, mutta se varmistaa, että tietyt kentät
+        // (kuten .type ja .isPlayerConquest) ovat varmasti olemassa payloadissa.
+        if (action.action === 'COMPLETE_PLANETARY') {
+            tutorialPayload.type = action.type;
+            tutorialPayload.isPlayerAction = String(actorId(action)) === String(myPlayerId);
+            
+        } else if (action.action === 'SHIP_SPAWNED') {
+            tutorialPayload.type = action.type;
+            tutorialPayload.isPlayerAction = String(actorId(action)) === String(myPlayerId);
+            
+        } else if (action.action === 'CONQUEST_COMPLETE') {
+            // Lisätään erityinen lippu valloituksille, jota jotkin tutoriaalin haarat voivat käyttää.
+            tutorialPayload.isPlayerConquest = String(actorId(action)) === String(myPlayerId);
+        }
+        
+        // 4. LOPUKSI: Välitetään tapahtuma ja rikastettu payload tutoriaalille.
+        // Tämän kutsun jälkeen advanceTutorial-funktio päättää, näytetäänkö jokin tutoriaalivaihe.
+        advanceTutorial(action.action, tutorialPayload);
+
+        // =================================================================
+        // TÄSTÄ ALASPÄIN ALKAA VARSINAINEN UI-PÄIVITYSLOGIIKKA (switch-case)
+        // =================================================================
+
         switch (action.action) {
 
             // Synkronoi pelinopeus palvelimen kanssa
@@ -2499,6 +2634,19 @@ function updateUIFromDiff(diff) {
                         state: 'orbiting'
                     };
                     gameState.ships.push(newShipData);
+                }
+
+                // Tarkista, pitäisikö pelaajan laivueen muodostus -tutoriaali aktivoida.
+                // HUOM: Tämä logiikka on vain täällä, koska se vaatii pelaajan KAIKKIEN alusten laskemista.
+                if (action.ownerId === myPlayerId) {
+                    const playerShipCount = gameState.ships.filter(ship =>
+                        ship.ownerId && ship.ownerId.toString() === myPlayerId.toString()
+                    ).length;
+                    
+                    // Jos pelaajalla on 2 alusta, laukaise oma tutoriaalitapahtuma.
+                    if (playerShipCount === 2) {
+                        advanceTutorial('PLAYER_HAS_MULTIPLE_SHIPS');
+                    }
                 }
 
                 // Päivitä tähden tila (uusi alusjono) sekä globaalisti että paikallisesti
@@ -2632,9 +2780,366 @@ function updateUIFromDiff(diff) {
     });
 }
 
+
+/* ========================================================================== */
+/* TUTORIAL SYSTEM                                                            */
+/* ========================================================================== */
+
+/**
+ * MITÄ: Muuntaa tutoriaalin tekstin Markdown-syntaksin HTML-muotoon.
+ * MIKSI: Mahdollistaa tekstin muotoilun, kuten lihavoinnin ja rivinvaihdot,
+ * suoraan tutorialScript.js-tiedostosta.
+ * @param {string} text - Muotoilematon teksti.
+ * @returns {string} - HTML-muotoiltu merkkijono.
+ */
+function formatTutorialText(text) {
+    // Varmistetaan, ettei tyhjä text-muuttuja aiheuta virhettä.
+    if (!text) return '';
+    // Ketjutetaan kaksi replace-metodia:
+    return text
+        // 1. Etsii kaikki kaksoistähtien sisällä olevat merkkijonot ja korvaa ne <strong>-tageilla.
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        // 2. Etsii kaikki rivinvaihtomerkit (\n) ja korvaa ne HTML:n <br>-tageilla.
+        .replace(/\n/g, '<br>');
+}
+
+// Globaali muuttuja, joka pitää kirjaa käynnissä olevasta animaatiosta.
+// Tarvitsemme tämän, jotta voimme keskeyttää animaation, jos pelaaja sulkee ikkunan liian nopeasti.
+let activeTextAnimation = null; 
+
+/**
+ * MITÄ: Näyttää tutoriaalipaneelin ja päivittää sen sisällön.
+ * MIKSI: Tämä on keskitetty funktio tutoriaalin visuaaliselle puolelle.
+ * Päivitetty versio animoi tekstin ja hyväksyy näppäimistökomentoja.
+ * @param {string|object} stepOrStepId - Tutoriaalivaiheen ID tai suora vaihe-objekti.
+ */
+function showTutorialMessage(stepOrStepId) {
+    // --- VAIHE 1: DATAN ALUSTUS ---
+    const step = typeof stepOrStepId === 'string' ? tutorialSteps[stepOrStepId] : stepOrStepId;
+    const stepId = typeof stepOrStepId === 'string' ? stepOrStepId : null;
+
+    if (!step) {
+        console.error("Tutorial step not found:", stepOrStepId);
+        return;
+    }
+
+    if (stepId) {
+        tutorialState.completedSteps.add(stepId);
+        tutorialState.lastStepId = stepId;
+    }
+
+    if (!step.speaker && !step.text) {
+        const panelToHide = document.getElementById('tutorialPanel');
+        if (panelToHide) panelToHide.style.display = 'none';
+        highlightElement(null);
+        return;
+    }
+    
+    // --- VAIHE 2: DOM-ELEMENTTIEN HAKU ---
+    const panel = document.getElementById('tutorialPanel');
+    const image = document.getElementById('tutorialSpeakerImage');
+    const nameField = document.getElementById('tutorialSpeakerName');
+    const textField = document.getElementById('tutorialText');
+    const closeButton = document.getElementById('tutorialCloseButton');
+
+    if (!panel || !image || !nameField || !textField || !closeButton) return;
+
+    // --- VAIHE 3: PUHUJAN JA ULKOASUN PÄIVITYS ---
+    if (step.speaker === 'Valerius') {
+        image.src = './assets/portraits/valerius.png';
+        nameField.textContent = 'General Valerius';
+        panel.style.borderColor = '#dc3545';
+    } else {
+        image.src = './assets/portraits/elara.png';
+        nameField.textContent = 'Economist Elara';
+        panel.style.borderColor = '#63b3ed';
+    }
+
+    panel.style.display = 'flex';
+    highlightElement(step.highlightSelector);
+
+    // --- VAIHE 4: TEKSTIANIMAATION KÄYNNISTYS ---
+    // Aiemman 'textField.innerHTML = ...' -rivin sijaan kutsumme uutta animaatiofunktiota.
+    animateText(textField, step.text, 500); // Kesto 500ms = 0.5s
+
+    // --- VAIHE 5: NÄPPÄIMISTÖKUUNTELIJAN MÄÄRITTELY JA LISÄYS ---
+    // Määritellään käsittelijäfunktio omaksi muuttujakseen, jotta voimme myöhemmin poistaa sen.
+    const handleTutorialKeyPress = (event) => {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            const currentCloseButton = document.getElementById('tutorialCloseButton');
+            if (currentCloseButton) {
+                currentCloseButton.click(); // Simuloidaan napin painallusta.
+            }
+        }
+    };
+    // Lisätään kuuntelija koko dokumenttiin, kun viesti ilmestyy.
+    document.addEventListener('keydown', handleTutorialKeyPress);
+
+    // --- VAIHE 6: "CLOSE"-NAPIN TOIMINNALLISUUDEN MÄÄRITTELY ---
+    const newCloseButton = closeButton.cloneNode(true);
+    closeButton.parentNode.replaceChild(newCloseButton, closeButton);
+
+    newCloseButton.addEventListener('mouseenter', async () => {
+        await initAudio();
+        playButtonHoverSound();
+    });
+
+    newCloseButton.addEventListener('click', () => {
+        playButtonClickSound();
+
+        // TÄRKEÄÄ: Siivotaan kaikki, mitä aloitimme, kun paneeli suljetaan.
+        // 1. Poistetaan näppäimistökuuntelija, ettei se jää kummittelemaan.
+        document.removeEventListener('keydown', handleTutorialKeyPress);
+        // 2. Pysäytetään tekstianimaatio, jos se on vielä kesken.
+        if (activeTextAnimation) {
+            clearInterval(activeTextAnimation);
+            activeTextAnimation = null;
+        }
+
+        // Napin looginen toiminta (sama kuin aiemmin).
+        if (step.next) {
+            const nextStepInLine = tutorialSteps[step.next];
+            if (nextStepInLine && nextStepInLine.trigger?.event === 'TUTORIAL_CONTINUE') {
+                advanceTutorial('TUTORIAL_CONTINUE');
+            } else {
+                panel.style.display = 'none';
+                highlightElement(null);
+            }
+        } else {
+            panel.style.display = 'none';
+            highlightElement(null);
+        }
+    }, { once: true });
+}
+
+/**
+ * MITÄ: Korostaa tai poistaa korostuksen annetusta UI-elementistä (tai elementeistä).
+ * MIKSI: Tämä on visuaalinen apufunktio, joka ohjaa pelaajan huomion
+ * oikeaan nappiin tai elementtiin.
+ * @param {string|string[]|null} selector - Korostettavan elementin CSS-selektori tai taulukko selektoreita.
+ */
+function highlightElement(selector) {
+     // 1. Poistetaan aina ensin kaikki vanhat korostukset, jotta vältetään päällekkäisyydet.
+    const highlightedElements = document.querySelectorAll('.highlight-tutorial');
+    highlightedElements.forEach(el => {
+        el.classList.remove('highlight-tutorial');
+    });
+
+    // Jos selektoria ei ole annettu, lopetetaan..
+    if (!selector) return;
+
+    // 2. Käsitellään sekä yksittäinen selektori (string) että useampi (array)..
+    if (Array.isArray(selector)) {
+        // Jos selektori on taulukko, käydään jokainen läpi ja lisätään korostusluokka.
+        selector.forEach(sel => {
+            const element = document.querySelector(sel);
+            if (element) {
+                element.classList.add('highlight-tutorial');
+            }
+        });
+    } else {
+        // Jos se on vain merkkijono, lisätään korostus suoraan.
+        const element = document.querySelector(selector);
+        if (element) {
+            element.classList.add('highlight-tutorial');
+        }
+    }
+}
+
+
+/**
+ * MITÄ: Tutoriaalijärjestelmän "aivot". Vastaanottaa pelitapahtuman ja päättää, tuleeko jonkin
+ * tutoriaalivaiheen laueta.
+ * MIKSI: Keskittää kaiken tutoriaalin laukaisulogiikan yhteen paikkaan. Tämä "if this, then that"
+ * -malli on joustava ja mahdollistaa uusien, itsenäisten tutoriaalien lisäämisen helposti.
+ * @param {string} triggerEvent - Tapahtuman nimi (esim. 'SHIP_SPAWNED').
+ * @param {object} payload - Tapahtumaan liittyvä data.
+ */
+function advanceTutorial(triggerEvent, payload = {}) {
+    if (!tutorialState.isActive) return;
+
+    // Sisäinen apufunktio, joka vertaa tutoriaalivaiheen vaatimuksia (`condition`)
+    // todelliseen pelitapahtumaan (`triggerEvent`, `payload`).
+    const checkCondition = (condition) => {
+        if (!condition || condition.event !== triggerEvent) return false;
+        // Jos triggeri vaatii tiettyä payload-dataa...
+        if (condition.payload) {
+            // ...varmistetaan, että kaikki vaaditut kentät löytyvät ja niiden arvot täsmäävät.
+            return Object.keys(condition.payload).every(key =>
+                payload[key] !== undefined && condition.payload[key] === payload[key]
+            );
+        }
+        // Jos payload-ehtoja ei ole, pelkkä eventin täsmääminen riittää.
+        return true;
+    };
+
+    // --- OSA 1: KETJUTETTUJEN DIALOGIEN KÄSITTELY ---
+    // Tämä osa suoritetaan VAIN, kun tapahtuma on 'TUTORIAL_CONTINUE'.
+    // Se tarkistaa, oliko edellisellä viestillä jatkoa (next-kenttä).
+    if (triggerEvent === 'TUTORIAL_CONTINUE' && tutorialState.lastStepId) {
+        const lastStep = tutorialSteps[tutorialState.lastStepId];
+        const nextStepId = lastStep?.next;
+        const nextStep = tutorialSteps[nextStepId];
+
+        // Jos seuraava vaihe on olemassa ja se on nimenomaan TUTORIAL_CONTINUE-tyyppinen...
+        if (nextStep && nextStep.trigger.event === 'TUTORIAL_CONTINUE') {
+            // ...ja sitä ei ole jo näytetty...
+            if (!tutorialState.completedSteps.has(nextStepId)) {
+                // ...näytetään se ja poistutaan funktiosta.
+                showTutorialMessage(nextStepId);
+            }
+            return;
+        }
+    }
+
+    // --- OSA 2: KAIKKIEN MUIDEN TAPAHTUMIEN KÄSITTELY ---
+    // Käydään läpi kaikki `tutorialScript.js`:n määrittelemät vaiheet.
+    for (const [stepId, step] of Object.entries(tutorialSteps)) {
+        // Ohitetaan vaiheet, jotka on jo näytetty tai jotka ovat jatkodialogeja.
+        if (tutorialState.completedSteps.has(stepId) || step.trigger?.event === 'TUTORIAL_CONTINUE') {
+            continue;
+        }
+
+        let triggerMet = false;
+        // A) Käsittele risteysvaiheet (esim. 'firstActionComplete').
+        if (step.triggers) {
+            for (const branch of step.triggers) {
+                // Tarkistetaan, täyttyykö haaran ehto.
+                const conditionMet = branch.trigger.any ? branch.trigger.any.some(checkCondition) : checkCondition(branch.trigger);
+                // Varmistetaan lisäksi, että toimija oli pelaaja.
+                if (conditionMet && (payload.isPlayerAction || payload.isPlayerConquest)) {
+                    // Näytetään haaran määrittelemä viesti ja merkitään risteys "käytetyksi".
+                    showTutorialMessage(branch.action);
+                    tutorialState.completedSteps.add(stepId); // Merkitse risteys "käytetyksi"
+                    return; // Poistutaan, ettei muita tutoriaaleja laukea samasta tapahtumasta.
+                }
+            }
+        // B) Käsittele normaalit, yksittäisen triggerin vaiheet.
+        } else if (step.trigger) {
+            triggerMet = checkCondition(step.trigger);
+        }
+        // Jos mikä tahansa triggeri täyttyi...
+        if (triggerMet) {
+            // ...näytetään vastaava tutoriaalivaihe ja poistutaan heti.
+            showTutorialMessage(stepId);
+            return; // Näytetään vain yksi tutoriaali per tapahtuma
+        }
+    }
+}
+
+
+/**
+ * MITÄ: Tarkistaa, onko jokin uusi rakennusvaihtoehto tullut mahdolliseksi.
+ * MIKSI: Tämä funktio tekee tutoriaalista proaktiivisen ja opastaa pelaajaa,
+ * kun uusia strategisia valintoja avautuu.
+ * @param {object} starData - Valitun tähden dataobjekti.
+ */
+function checkUnlockTriggers(starData) {
+    // Varmistetaan, että tutoriaali on päällä ja käsittelemme pelaajan omaa tähteä.
+    if (!tutorialState.isActive || !starData || !isPlayerOwned(starData)) return;
+    
+    // Sääntö Shipyard Lvl 2:lle (tämä oli jo olemassa)
+    if (starData.infrastructureLevel >= 2 && starData.shipyardLevel === 1) {
+        advanceTutorial('UNLOCK', { 
+            option: 'Shipyard Lvl 2',
+            isPlayerAction: true
+        });
+    }
+
+    // LISÄTTY: Sääntö Shipyard Lvl 3:lle
+    if (starData.infrastructureLevel >= 3 && starData.shipyardLevel === 2) {
+        advanceTutorial('UNLOCK', { 
+            option: 'Shipyard Lvl 3',
+            isPlayerAction: true
+        });
+    }
+
+    // LISÄTTY: Sääntö Shipyard Lvl 4:lle
+    if (starData.infrastructureLevel >= 4 && starData.shipyardLevel === 3) {
+        advanceTutorial('UNLOCK', { 
+            option: 'Shipyard Lvl 4',
+            isPlayerAction: true
+        });
+    }
+}
+
+
+/**
+ * MITÄ: Animoi tekstin ilmestymisen elementtiin kirjain kerrallaan.
+ * MIKSI: Luo immersiivisen lennätin/terminaali-efektin. Osaa käsitellä HTML-tageja.
+ * @param {HTMLElement} element - HTML-elementti, johon teksti kirjoitetaan.
+ * @param {string} text - Koko teksti, joka animoidaan.
+ * @param {number} totalDuration - Animaation kokonaiskesto millisekunteina.
+ */
+function animateText(element, text, totalDuration = 500) {
+    // Jos vanha animaatio on vielä käynnissä, pysäytetään se.
+    if (activeTextAnimation) {
+        clearInterval(activeTextAnimation);
+    }
+    
+    // Alustetaan elementti tyhjäksi.
+    element.innerHTML = '';
+    
+    // Muotoillaan teksti ensin HTML-muotoon.
+    const htmlText = formatTutorialText(text);
+    const textLength = htmlText.replace(/<[^>]*>/g, '').length; // Lasketaan pituus ilman tageja.
+    
+    // Varmistetaan, ettei jako nollalla tapahdu.
+    if (textLength === 0) {
+        element.innerHTML = htmlText;
+        return;
+    }
+    
+    // Lasketaan viive per merkki.
+    const delayPerChar = totalDuration / textLength;
+    let i = 0;
+
+    activeTextAnimation = setInterval(() => {
+        // Jos olemme tekstin lopussa, pysäytetään ajastin.
+        if (i >= htmlText.length) {
+            clearInterval(activeTextAnimation);
+            activeTextAnimation = null;
+            return;
+        }
+
+        // Jos seuraava merkki on HTML-tagin alku...
+        if (htmlText[i] === '<') {
+            const tagEnd = htmlText.indexOf('>', i);
+            // ...lisätään koko tagi kerralla ilman ääntä.
+            element.innerHTML += htmlText.substring(i, tagEnd + 1);
+            i = tagEnd + 1;
+        } else {
+            // Muussa tapauksessa lisätään yksi merkki ja soitetaan ääni.
+            element.innerHTML += htmlText[i];
+            playTeletypeSound();
+            i++;
+        }
+    }, delayPerChar);
+}
+
 /* ========================================================================== */
 /*  UTILITY FUNCTIONS                                                         */
 /* ========================================================================== */
+
+
+/**  Palauttaa sen pelaajan ID:n, joka todennäköisimmin suoritti actionin.  */
+function actorId(action) {
+    // Jos on COMPLETE_PLANETARY ja selectedStar on sama kuin action.starId
+    if (action.action === 'COMPLETE_PLANETARY' && selectedStar && selectedStar._id === action.starId) {
+        // Palauta valitun tähden omistaja
+        return selectedStar.ownerId;
+    }
+    
+    return (
+        action.ownerId          ?? 
+        action.playerId         ?? 
+        action.newOwnerId       ?? 
+        action.conquerorId      ?? 
+        action.starData?.ownerId
+    );
+}
+
 
 /**
  * MITÄ: Laskee seuraavan tason infrastruktuurin päivityksen kustannukset.
@@ -2706,6 +3211,29 @@ function syncShipButtons() {
 }
 
 
+
+// Apufunktio triggerin ja pelitapahtuman vertailuun.
+const checkCondition = (condition) => {
+    if (condition.event !== triggerEvent) return false;
+    if (condition.payload) {
+        // DEBUG: Tulostetaan mitä verrataan
+        console.log('Checking condition:', {
+            conditionEvent: condition.event,
+            triggerEvent: triggerEvent,
+            conditionPayload: condition.payload,
+            actualPayload: payload,
+            matches: Object.keys(condition.payload).every(key => 
+                payload[key] !== undefined && condition.payload[key] === payload[key]
+            )
+        });
+        
+        // Varmistetaan, että kaikki vaaditut payload-kentät löytyvät JA vastaavat arvoja.
+        return Object.keys(condition.payload).every(key => 
+            payload[key] !== undefined && condition.payload[key] === payload[key]
+        );
+    }
+    return true;
+};
 
 /* ========================================================================== */
 /*  EXPORTS & FINAL SETUP                                                     */
