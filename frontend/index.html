@@ -512,13 +512,14 @@
         /* Tutorial Panel -määritykset */
         .tutorial-panel {
         position: fixed;
-        top: 20px;
-        left: 50%;
-        transform: translateX(-50%);
+        top: 50px;
+        right: 15px; 
+        left: auto;
+        transform: none;
         width: 400px;
         display: none; /* Piilotettu oletuksena */
         flex-direction: row;
-        align-items: flex-start; /* Kohdista yläreunaan */
+        align-items: stretch; 
         background-color: rgba(20, 30, 45, 0.85);
         border: 1px solid #4a5568;
         border-radius: 8px;
@@ -528,17 +529,31 @@
         color: #e2e8f0;
     }
 
+    .tutorial-column-left {
+    display: flex;
+    flex-direction: column;      /* Asettaa kuvan ja linkin päällekkäin */
+    justify-content: space-between; /* Työntää kuvan ylös ja linkin alas */
+    margin-right: 15px;         /* Lisää välin oikeanpuoleiseen sarakkeeseen */
+    text-align: center;         /* Keskittää skip-linkin tekstin */
+    }
+
     .speaker-image {
         width: 120px;
         height: 120px;
         border-radius: 50%;
         border: 2px solid #718096; 
-        margin-right: 15px;
         object-fit: cover;
     }
 
     .dialog-box {
-        flex-grow: 1;
+        flex-grow: 1; /* Antaa tämän sarakkeen viedä lopun tilan */
+        display: flex;
+        flex-direction: column; /* Järjestää sisällön (teksti, napit) pystysuunnassa */
+    }
+
+    .dialog-box .tutorial-hint {
+    margin-top: auto; /* Työntää tämän ja alla olevat elementit pohjalle */
+    margin-bottom: 10px; /* Pieni väli kontrollien ja vihjeen väliin */
     }
 
     .dialog-text {
@@ -552,22 +567,17 @@
     }
 
     .dialog-button {
-    /* Perustyylit kopioitu .infoPanel button -säännöstä yhtenäisyyden vuoksi */
-    padding: 8px 18px; /* Hieman enemmän sivuttaista tilaa */
-    border-radius: 6px;
-    border: 1px solid #4b5563;
-    background-color: #374151;
-    color: #e5e7eb;
-    cursor: pointer;
-    transition: background-color 0.3s, box-shadow 0.3s;
-    font-size: 0.875rem;
-    font-weight: 500; /* Medium font-weight */
-    text-align: center;
-
-    /* Dialogiin sopivat säädöt */
-    margin-top: 15px; /* Lisätään tilaa tekstin ja napin väliin */
-    width: auto;      /* Annetaan napin leveyden määräytyä tekstin mukaan */
-    float: right;     /* Asetetaan nappi dialogin oikeaan laitaan */
+        padding: 8px 18px;
+        border-radius: 6px;
+        border: 1px solid #4b5563;
+        background-color: #374151;
+        color: #e5e7eb;
+        cursor: pointer;
+        transition: background-color 0.3s, box-shadow 0.3s;
+        font-size: 0.875rem;
+        font-weight: 500;
+        text-align: center;
+        width: auto;
     }
 
     /* Hover-efekti, kopioitu muista napeista */
@@ -604,7 +614,34 @@
     /* Varmuuden vuoksi asetetaan myös hehku uudelleen, jos jokin muu sääntö
        yrittää muokata tai poistaa sitä pausen aikana. */
     box-shadow: 0 0 15px 5px #f6e05e !important;
-}
+    }
+
+
+    .tutorial-controls {
+        display: flex;
+        justify-content: flex-end; /* Työntää sisällön oikealle */
+        align-items: center;      /* Tasaa elementit pystysuunnassa keskelle */
+        gap: 15px;                /* Lisää väliä Skip-linkin ja Close-napin väliin */
+    }
+
+    .tutorial-hint {
+        text-align: right;
+        font-size: 0.75rem;
+        color: #9ca3af;
+        margin-top: 15px;
+        font-style: italic;
+    }
+
+    .skip-link {
+        color: #9ca3af;
+        text-decoration: underline;
+        cursor: pointer;
+        transition: color 0.2s;
+    }
+
+    .skip-link:hover {
+        color: #e5e7eb; /* Kirkastuu hieman hoverilla */
+    }
 
     </style>
 </head>
@@ -839,7 +876,12 @@
 
     <!-- TUTORIAL PANEL -->
     <div id="tutorialPanel" class="tutorial-panel">
-        <img id="tutorialSpeakerImage" src="" alt="Speaker Portrait" class="speaker-image">
+        
+        <div class="tutorial-column-left">
+            <img id="tutorialSpeakerImage" src="" alt="Speaker Portrait" class="speaker-image">
+            <a href="#" id="tutorialSkipButton" class="skip-link">Skip Tutorial</a>
+        </div>
+
         <div class="dialog-box">
             <p id="tutorialSpeakerName" class="speaker-name"></p>
             <p id="tutorialText" class="dialog-text"></p>
@@ -847,8 +889,11 @@
             
             <div class="tutorial-hint">Press Enter to continue</div>
 
-            <button id="tutorialCloseButton" class="dialog-button">Close</button>
+            <div class="tutorial-controls">
+                <button id="tutorialCloseButton" class="dialog-button">Close</button>
+            </div>
         </div>
+
     </div>
 
 

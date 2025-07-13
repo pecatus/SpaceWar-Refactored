@@ -2785,6 +2785,11 @@ function updateUIFromDiff(diff) {
 /* TUTORIAL SYSTEM                                                            */
 /* ========================================================================== */
 
+// Globaali muuttuja, joka pitää kirjaa käynnissä olevasta animaatiosta.
+// Tarvitsemme tämän, jotta voimme keskeyttää animaation, jos pelaaja sulkee ikkunan liian nopeasti.
+let activeTextAnimation = null; 
+
+
 /**
  * MITÄ: Muuntaa tutoriaalin tekstin Markdown-syntaksin HTML-muotoon.
  * MIKSI: Mahdollistaa tekstin muotoilun, kuten lihavoinnin ja rivinvaihdot,
@@ -2803,44 +2808,61 @@ function formatTutorialText(text) {
         .replace(/\n/g, '<br>');
 }
 
-// Globaali muuttuja, joka pitää kirjaa käynnissä olevasta animaatiosta.
-// Tarvitsemme tämän, jotta voimme keskeyttää animaation, jos pelaaja sulkee ikkunan liian nopeasti.
-let activeTextAnimation = null; 
+
+/**
+ * Apufunktio, joka hoitaa kaiken tutoriaalin sulkemiseen liittyvän siivouksen.
+ * @param {boolean} wasPaused - Oliko peli pausella ennen tutoriaalia.
+ * @param {Function} keyPressHandler - Viittaus näppäimistökuuntelijaan, joka tulee poistaa.
+ */
+function closeAndCleanupTutorial(wasPaused, keyPressHandler) {
+    // Siivotaan kuuntelijat ja animaatiot.
+    if (keyPressHandler) {
+        document.removeEventListener('keydown', keyPressHandler);
+    }
+    if (activeTextAnimation) {
+        clearInterval(activeTextAnimation);
+        activeTextAnimation = null;
+    }
+
+    // Piilotetaan UI.
+    const panel = document.getElementById('tutorialPanel');
+    if (panel) panel.style.display = 'none';
+    highlightElement(null);
+
+    // Jatketaan peliä, jos se pausetettiin vain tutoriaalia varten.
+    if (!wasPaused) {
+        resumeGame();
+    }
+}
+
 
 /**
  * MITÄ: Näyttää tutoriaalipaneelin ja päivittää sen sisällön.
  * MIKSI: Tämä on keskitetty funktio tutoriaalin visuaaliselle puolelle.
- * Päivitetty versio animoi tekstin ja hyväksyy näppäimistökomentoja.
- * Pausettaa pelin automaattisesti viestin ajaksi.
+ * Päivitetty versio animoi tekstin, hyväksyy näppäimistökomentoja ja
+ * pausentaa pelin automaattisesti viestin ajaksi.
  * @param {string|object} stepOrStepId - Tutoriaalivaiheen ID tai suora vaihe-objekti.
  */
 function showTutorialMessage(stepOrStepId) {
-    // 1. Tallennetaan muistiin, oliko peli jo valmiiksi pausella.
     const wasPausedBeforeTutorial = isPaused;
-    // 2. Laitetaan peli paussille, jos se ei jo ollut.
     if (!wasPausedBeforeTutorial) {
         pauseGame();
     }
-    // --- VAIHE 1: DATAN ALUSTUS ---
+    
     const step = typeof stepOrStepId === 'string' ? tutorialSteps[stepOrStepId] : stepOrStepId;
     const stepId = typeof stepOrStepId === 'string' ? stepOrStepId : null;
 
     if (!step) {
-        console.error("Tutorial step not found:", stepOrStepId);
-        // Varmistetaan, että peli ei jää paussille virhetilanteessa.
-        if (!wasPausedBeforeTutorial) { resumeGame(); }
+        closeAndCleanupTutorial(wasPausedBeforeTutorial, null);
         return;
     }
-
     if (stepId) {
         tutorialState.completedSteps.add(stepId);
         tutorialState.lastStepId = stepId;
     }
-
     if (!step.speaker && !step.text) {
-        const panelToHide = document.getElementById('tutorialPanel');
-        if (panelToHide) panelToHide.style.display = 'none';
-        highlightElement(null);
+        // KORJAUS 2: Lisätty siivouskutsu tähän, jotta peli ei jää paussille.
+        closeAndCleanupTutorial(wasPausedBeforeTutorial, null); 
         return;
     }
     
@@ -2850,8 +2872,10 @@ function showTutorialMessage(stepOrStepId) {
     const nameField = document.getElementById('tutorialSpeakerName');
     const textField = document.getElementById('tutorialText');
     const closeButton = document.getElementById('tutorialCloseButton');
+    // KORJAUS 1: Lisätty puuttuva skipButton-haku.
+    const skipButton = document.getElementById('tutorialSkipButton'); 
 
-    if (!panel || !image || !nameField || !textField || !closeButton) return;
+    if (!panel || !image || !nameField || !textField || !closeButton || !skipButton) return;
 
     // --- VAIHE 3: PUHUJAN JA ULKOASUN PÄIVITYS ---
     if (step.speaker === 'Valerius') {
@@ -2866,26 +2890,23 @@ function showTutorialMessage(stepOrStepId) {
 
     panel.style.display = 'flex';
     highlightElement(step.highlightSelector);
+    animateText(textField, step.text, 500);
 
-    // --- VAIHE 4: TEKSTIANIMAATION KÄYNNISTYS ---
-    // Aiemman 'textField.innerHTML = ...' -rivin sijaan kutsumme uutta animaatiofunktiota.
-    animateText(textField, step.text, 500); // Kesto 500ms = 0.5s
-
-    // --- VAIHE 5: NÄPPÄIMISTÖKUUNTELIJAN MÄÄRITTELY JA LISÄYS ---
-    // Määritellään käsittelijäfunktio omaksi muuttujakseen, jotta voimme myöhemmin poistaa sen.
     const handleTutorialKeyPress = (event) => {
         if (event.key === 'Enter') {
             event.preventDefault();
-            const currentCloseButton = document.getElementById('tutorialCloseButton');
-            if (currentCloseButton) {
-                currentCloseButton.click(); // Simuloidaan napin painallusta.
-            }
+            document.getElementById('tutorialCloseButton')?.click();
         }
     };
-    // Lisätään kuuntelija koko dokumenttiin, kun viesti ilmestyy.
     document.addEventListener('keydown', handleTutorialKeyPress);
 
-    // --- VAIHE 6: "CLOSE"-NAPIN TOIMINNALLISUUDEN MÄÄRITTELY ---
+    const handleSkip = (event) => {
+        event.preventDefault();
+        tutorialState.isActive = false;
+        closeAndCleanupTutorial(wasPausedBeforeTutorial, handleTutorialKeyPress);
+    };
+    skipButton.addEventListener('click', handleSkip, { once: true });
+
     const newCloseButton = closeButton.cloneNode(true);
     closeButton.parentNode.replaceChild(newCloseButton, closeButton);
 
@@ -2896,37 +2917,16 @@ function showTutorialMessage(stepOrStepId) {
 
     newCloseButton.addEventListener('click', () => {
         playButtonClickSound();
-
-        // TÄRKEÄÄ: Siivotaan kaikki, mitä aloitimme, kun paneeli suljetaan.
-        // 1. Poistetaan näppäimistökuuntelija, ettei se jää kummittelemaan.
-        document.removeEventListener('keydown', handleTutorialKeyPress);
-        // 2. Pysäytetään tekstianimaatio, jos se on vielä kesken.
-        if (activeTextAnimation) {
-            clearInterval(activeTextAnimation);
-            activeTextAnimation = null;
-        }
-
-        // Palautetaan pelin tila ennalleen: jatketaan peliä vain,
-        // jos se ei ollut valmiiksi pausella ennen tutoriaalin ilmestymistä.
-        if (!wasPausedBeforeTutorial) {
-            resumeGame();
-        }
-
-        // Napin looginen toiminta (sama kuin aiemmin).
+        skipButton.removeEventListener('click', handleSkip);
+        
+        closeAndCleanupTutorial(wasPausedBeforeTutorial, handleTutorialKeyPress);
+        
         if (step.next) {
             const nextStepInLine = tutorialSteps[step.next];
-            if (nextStepInLine && nextStepInLine.trigger?.event === 'TUTORIAL_CONTINUE') {
+            if (nextStepInLine?.trigger?.event === 'TUTORIAL_CONTINUE') {
                 advanceTutorial('TUTORIAL_CONTINUE');
-            } else {
-                panel.style.display = 'none';
-                highlightElement(null);
             }
-            
-        } else {
-            panel.style.display = 'none';
-            highlightElement(null);
         }
-
     }, { once: true });
 }
 
