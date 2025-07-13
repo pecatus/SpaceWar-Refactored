@@ -12,6 +12,13 @@ export const tutorialSteps = {
     text: "Welcome is a luxury we cannot afford. The situation is dire!\n\nThe old Galactic Empire has shattered, and from its ashes, rogue AIs have risen, threatening to consume what little remains. We are all that is left.\n\nWe must consolidate our position, post-haste!",
     highlightSelector: null,
     trigger: { event: 'TUTORIAL_CONTINUE' },
+    next: 'elaraSpeedControlsIntro' 
+},
+'elaraSpeedControlsIntro': {
+    speaker: 'Elara',
+    text: "Commander, time is a resource like any other. You can manipulate the flow of our **Virtual Symmetry System** using these controls.\n\nNote that my and the General's communiques will automatically pause the system to ensure you don't miss critical information.",
+    highlightSelector: '#speedPanel',
+    trigger: { event: 'TUTORIAL_CONTINUE' },
     next: 'homeworldSelected' 
 },
   'homeworldSelected': {
@@ -219,7 +226,14 @@ export const tutorialSteps = {
             firstOfType: true
         } 
     },
-    next: null
+    next: 'valeriusMovementCommands'
+},
+'valeriusMovementCommands': {
+    speaker: 'Valerius',
+    text: "To command your forces, select them by **holding the SHIFT key and dragging a selection box** with the left mouse button. Then, **issue a move order with a right-click** on a target star.\n\nOur ships utilize established starlanes for rapid transit. They can traverse the void between unconnected stars, but be warned – such travel is significantly slower.\n\nAnd remember, Commander: we lack faster-than-light communication. Once an order is given, it cannot be recalled. Make your commands with conviction.",
+    highlightSelector: null,
+    trigger: { event: 'TUTORIAL_CONTINUE' }, 
+    next: null 
 },
 
 'firstDestroyerBuilt': {

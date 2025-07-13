@@ -2788,7 +2788,7 @@ function updateUIFromDiff(diff) {
 /**
  * MITÄ: Muuntaa tutoriaalin tekstin Markdown-syntaksin HTML-muotoon.
  * MIKSI: Mahdollistaa tekstin muotoilun, kuten lihavoinnin ja rivinvaihdot,
- * suoraan tutorialScript.js-tiedostosta.
+ * suoraan tutorialScript.js-tiedostosta. 
  * @param {string} text - Muotoilematon teksti.
  * @returns {string} - HTML-muotoiltu merkkijono.
  */
@@ -2811,15 +2811,24 @@ let activeTextAnimation = null;
  * MITÄ: Näyttää tutoriaalipaneelin ja päivittää sen sisällön.
  * MIKSI: Tämä on keskitetty funktio tutoriaalin visuaaliselle puolelle.
  * Päivitetty versio animoi tekstin ja hyväksyy näppäimistökomentoja.
+ * Pausettaa pelin automaattisesti viestin ajaksi.
  * @param {string|object} stepOrStepId - Tutoriaalivaiheen ID tai suora vaihe-objekti.
  */
 function showTutorialMessage(stepOrStepId) {
+    // 1. Tallennetaan muistiin, oliko peli jo valmiiksi pausella.
+    const wasPausedBeforeTutorial = isPaused;
+    // 2. Laitetaan peli paussille, jos se ei jo ollut.
+    if (!wasPausedBeforeTutorial) {
+        pauseGame();
+    }
     // --- VAIHE 1: DATAN ALUSTUS ---
     const step = typeof stepOrStepId === 'string' ? tutorialSteps[stepOrStepId] : stepOrStepId;
     const stepId = typeof stepOrStepId === 'string' ? stepOrStepId : null;
 
     if (!step) {
         console.error("Tutorial step not found:", stepOrStepId);
+        // Varmistetaan, että peli ei jää paussille virhetilanteessa.
+        if (!wasPausedBeforeTutorial) { resumeGame(); }
         return;
     }
 
@@ -2897,6 +2906,12 @@ function showTutorialMessage(stepOrStepId) {
             activeTextAnimation = null;
         }
 
+        // Palautetaan pelin tila ennalleen: jatketaan peliä vain,
+        // jos se ei ollut valmiiksi pausella ennen tutoriaalin ilmestymistä.
+        if (!wasPausedBeforeTutorial) {
+            resumeGame();
+        }
+
         // Napin looginen toiminta (sama kuin aiemmin).
         if (step.next) {
             const nextStepInLine = tutorialSteps[step.next];
@@ -2906,10 +2921,12 @@ function showTutorialMessage(stepOrStepId) {
                 panel.style.display = 'none';
                 highlightElement(null);
             }
+            
         } else {
             panel.style.display = 'none';
             highlightElement(null);
         }
+
     }, { once: true });
 }
 

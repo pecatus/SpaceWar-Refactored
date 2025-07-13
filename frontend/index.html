@@ -597,6 +597,15 @@
         border-radius: 5px; /* Pyöristys korostukselle */
     }
 
+    body.paused .highlight-tutorial {
+    /* Pakotetaan elementin läpinäkyvyys täydeksi (100%). */
+    opacity: 1 !important;
+    
+    /* Varmuuden vuoksi asetetaan myös hehku uudelleen, jos jokin muu sääntö
+       yrittää muokata tai poistaa sitä pausen aikana. */
+    box-shadow: 0 0 15px 5px #f6e05e !important;
+}
+
     </style>
 </head>
 
