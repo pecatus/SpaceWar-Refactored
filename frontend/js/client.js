@@ -92,11 +92,44 @@ const tutorialState = {
     
     // Set, joka pitää kirjaa niistä alustyypeistä, joiden 'ensimmäinen rakennettu' -viesti on
     // jo näytetty. Varmistaa, että viesti laukeaa vain kerran per alustyyppi.
-    shownFirstShipMessages: new Set() 
+    shownFirstShipMessages: new Set(), 
+
+    hasTriggeredVictory: false,     //Kaikki valloitettu -> Voitto
+    hasTriggeredDefeat: false,      // Kaikki menetetty -> Tappio
+    playerPlanetsLost: 0, // Laskuri menetetyille planeetoille.
+    playerPlanetsConquered: 0, // Laskuri valloitetuille planeetoille.
+    hasCommentedOnAIInfighting: false, // Lippu AI:n keskinäiselle sodalle.
+    aiMinePraiseLevel: 0, // Lipputaso AI:n kaivosten kommentoinnin seuraamiselle
+    hasWarnedAboutAIShipyardLvl2: false, // Lippu kun AI rakentaa telakka lvl 2
+    hasConqueredFirstAIPlanet: false, // Onko pelaaja vielä valloittanut yhtäkään AI.n planeettaa -lippu
+    hasCommentedOnMineCapture: false, // Onko kommentoitu kaivosplaneetan valtausta AI:lta
+    hasTriggeredEconomicCrisis: false, // Onko kommentoitu kun credit-income menee miinukselle
+    playerHasSustainedLosses: false,    // Muuttuu todeksi heti ensimmäisestä menetyksestä.
+    flawlessConquestLevel: 0, // 0 = ei kehuja, 1 = 10 planeettaa, 2 = 30 jne.
+    minesBuiltByPlayer: 0,  // Seurataan pelaajan rakentamia kaivoksia vertailuksi kehuja varten 
+    minesCapturedFromAI: 0, // Seurataan varastettuja kaivoksia kehuja varten 
+    capturedMinePraiseLevel: 0, // Kehutaso kaapatuista kaivoksista
+    defensivePraiseLevel: 0,      // Seuraa, mikä puolustuskehu on annettu.
+    neglectedDefenseWarningLeveL: 0,  // Seuraa mikä puolustusvaroitus on annettu
+    totalDefensePraiseLevel: 0,  // Seuraa, mikä puolustuskehu on annettu, kun KAIKKI planeetat on puolustettu
+    empireSprawlWarningLeveL: 0,  // kasvavan imperiumin varoituksen seurantatasot
+    hasReceivedFirstAIMessage: false, // AI:n satunnaisviesti
+    playerShipsLost: 0,           // Laskuri pelaajan menettämille aluksille.
+    shipLossWarningLeveL: 0,       // Seuraa, mikä tappiovaroitus on annettu.
+    warEffortCommentLevel: 0,   // Seuraa, mikä sotatilannekommentti on annettu.
+    hasAITauntedLosses: false,  // Onko AI kommentoinut pelaajan tappioita
+    hasCrippledAIShipyards: false,  // Jos kaikki AI:n shipyardit on valloitettu 
+    hasLostAllShipyards: false,  // Jos kaikki pelaajan shipyardit on valloitettu
+    playerConquestPctLevel: 0,  // Pelaajan valloittama prosenttiosuus galaksista 
+    aiConquestPctLevel: 0,  // AI:n valloittama prosenttiosuus galaksista
+    hubNetworkPraiseLevel: 0,  // Galactic hubien määrän laskuri
+    hasWarnedAboutAIShipyardLvl3: false  // Onko varoitettu että AI sai juuri shipyard lvl 3:n 
+
 };
 
 let tutorialMessageQueue = [];      // Taulukko, joka toimii odottavien viestien jonona.
 let isTutorialMessageVisible = false; // Lippu, joka kertoo, onko viesti-ikkuna tällä hetkellä käytössä.
+
 
 
 /**
@@ -1028,6 +1061,39 @@ function resetClientState() {
     selectedStar = null;
     playerResources = { credits: 1000, minerals: 500 }; // Palauta alkuarvoihin
 
+    //Tutoriaalin nollaukset
+    tutorialState.playerPlanetsLost = 0; // Nollaa tutorialin menetettyjen planeettojen laskuri
+    tutorialState.playerPlanetsConquered = 0; // Nollaa tutorialin valloitettujen planeettojen laskuri
+    tutorialState.hasCommentedOnAIInfighting = false; // Nollaa AI:n keskinäisestä nahistelusta kertova lippu
+    tutorialState.aiMinePraiseLevel = 0; // AI:n kehitettyjen planeettojen valloitusehdotuslipun nollaaminen, ja kaivostilanteen tarkastelun nollaaminen
+    tutorialState.hasWarnedAboutAIShipyardLvl2 = false; // AI sai lvl 2 shipyardin, nollataan lippu
+    tutorialState.hasWarnedAboutAIShipyardLvl3 = false; // Sama lvl 3
+    tutorialState.hasConqueredFirstAIPlanet = false; // Onko pelaaja valloittanut vielä yhtään AI:n planeettaa -lipun nollaus
+    tutorialState.hasCommentedOnMineCapture = false; // Onko kommentoitu kaivosplaneetan valtausta AI:lta -lipun nollaus
+    tutorialState.hasTriggeredEconomicCrisis = false; // Onko kommentoitu kun credit-income menee miinukselle -lipun nollaus
+    tutorialState.playerHasSustainedLosses = false; // Flawless -pelin kulun seuraaja
+    tutorialState.flawlessConquestLevel = 0; //  // Flawless -pelin ylistyksen seuraaja
+    tutorialState.minesBuiltByPlayer = 0;   // Nollataan pelaajan rakentamien kaivosten seuranta
+    tutorialState.minesCapturedFromAI = 0; // Nollataan pelaajan varastamien kaivosten seuranta
+    tutorialState.capturedMinePraiseLevel = 0; // Nollataan kehutilanne varastetuista kaivoksista
+    tutorialState.defensivePraiseLevel = 0;     // Puolustustason seuraamisen nollaus kehuja varten
+    tutorialState.neglectedDefenseWarningLeveL = 0;  // Puolustustason seuraamisen nollaus varoituksia varten
+    tutorialState.totalDefensePraiseLevel = 0; // Puolustustason seuraamisen nollaus kehuja varten (KAIKKI puolustettu)
+    tutorialState.empireSprawlWarningLeveL = 0; // Nollataan varoitukset kasvavasta imperiumista
+    tutorialState.hasReceivedFirstAIMessage = false;  // Nollataan random AI-viesti
+    tutorialState.playerShipsLost = 0;      // // nollataan Laskuri pelaajan menettämille aluksille.
+    tutorialState.shipLossWarningLeveL = 0; // nollataan alustappiovaroituslaskuri
+    tutorialState.warEffortCommentLevel = 0;    // Kuinka menee suhteessa viholliseen (attritiokommentit)
+    tutorialState.hasAITauntedLosses = false;   // Onko AI haukkunt häviöitä
+    tutorialState.hasTriggeredDefeat = false; // Onko hävitty
+    tutorialState.hasTriggeredVictory = false;  // Onko voitettu 
+    tutorialState.hasCrippledAIShipyards = false;   // Onko AI:n kaikki shipyardit valloitettu
+    tutorialState.hasLostAllShipyards = false;  // Onko pelaajan kaikki shipyardit valloitettu
+    tutorialState.playerConquestPctLevel = 0; // Pelaajan valloitusten kokonaisprosentin seuranta
+    tutorialState.aiConquestPctLevel = 0;   // AI:n valloitusten kokonaisprosentin seurantaa 
+    tutorialState.hubNetworkPraiseLevel = 0; // nollataan laskuri mikä kommentoi galactic hubien määrää
+
+
     // Tyhjennetään planetary menun construction progressbarit
     constructionProgressData.clear();
     resetAllProgressBars();  // Nollaa visuaaliset progress barit
@@ -1104,6 +1170,7 @@ async function handleStartGame() {
         tutorialState.lastStepId = null; // Nollaa viimeisin vaihe
         tutorialState.shownFirstShipMessages.clear(); // Nollaa "ensimmäiset alukst"-setti     
         advanceTutorial('GAME_START');        // Käynnistä tutoriaali alusta
+        startAIMessageBroadcast();  // random AI-viestien ajastimen aloitus
 
     } catch (error) {
         alert("Failed to start game: " + error.message);
@@ -2393,6 +2460,7 @@ function updateResourceDisplay() {
     let creditIncome = 0;
     let mineralIncome = 0;
     let creditUpkeep = 0;
+    let shipUpkeep = 0;
     
     // Tulot ja kulut omistetuista tähdistä
     if (gameState && gameState.stars) {
@@ -2417,10 +2485,10 @@ function updateResourceDisplay() {
         gameState.ships
             .filter(ship => ship.ownerId === myPlayerId)
             .forEach(ship => {
-                creditUpkeep += SHIP_UPKEEP[ship.type] || 0;
+                shipUpkeep += SHIP_UPKEEP[ship.type] || 0;
             });
     }
-    
+    creditUpkeep += shipUpkeep;
     const netCredits = creditIncome - creditUpkeep;
     
     // Päivitä käyttöliittymän elementit näyttämään lasketut arvot.
@@ -2447,6 +2515,7 @@ function updateResourceDisplay() {
     if (selectedStar && planetMenu.style.display === 'block') {
         updateButtonStates(selectedStar);
     }
+    checkEconomicState(netCredits, shipUpkeep); // Tarkistaa ekonomisen tilan tutoriaalille 
 }
 
 
@@ -2568,6 +2637,88 @@ function updateUIFromDiff(diff) {
         // Tämän kutsun jälkeen advanceTutorial-funktio päättää, näytetäänkö jokin tutoriaalivaihe.
         advanceTutorial(action.action, tutorialPayload);
 
+        // Pelajaan planeettojen menetyksen erillinen tarkistus
+        if (action.action === 'CONQUEST_COMPLETE') {
+            // Tarkistetaan, oliko planeetan EDELLINEN omistaja pelaaja.
+            if (action.oldOwnerId && String(action.oldOwnerId) === String(myPlayerId)) {
+                tutorialState.playerHasSustainedLosses = true;
+                // Kasvatetaan menetettyjen planeettojen laskuria.
+                tutorialState.playerPlanetsLost++;
+                
+                // Laukaistaan eri tutoriaalitapahtumia laskurin arvon perusteella.
+                if (tutorialState.playerPlanetsLost === 1) {
+                    // Laukaise tapahtuma ensimmäiselle menetykselle.
+                    advanceTutorial('PLANET_LOST_FIRST', { isPlayerLoss: true });
+                    
+                } else if (tutorialState.playerPlanetsLost === 3) { // Esimerkiksi kolmen planeetan jälkeen
+                    // Laukaise tapahtuma, kun useita planeettoja on menetetty.
+                    advanceTutorial('PLANET_LOST_MULTIPLE', { isPlayerLoss: true });
+                    
+                } else if (tutorialState.playerPlanetsLost === 10) { // Ja kymmenen jälkeen
+                    // Laukaise tapahtuma, kun tilanne on katastrofaalinen.
+                    advanceTutorial('PLANET_LOST_CATASTROPHE', { isPlayerLoss: true });
+                }
+            }
+
+            // TARKISTUS 2: Pelaaja valloitti planeetan 
+            if (String(action.newOwnerId) === String(myPlayerId)) {
+                tutorialState.playerPlanetsConquered++;
+                //tarkistetaan strategiset kehumilestonet
+                checkStrategicMilestones();
+                // Laukaistaan eri tutoriaalitapahtumia virstanpylväiden mukaan.
+                if (tutorialState.playerPlanetsConquered === 5) {
+                    advanceTutorial('CONQUEST_MILESTONE_5');
+                } else if (tutorialState.playerPlanetsConquered === 20) {
+                    advanceTutorial('CONQUEST_MILESTONE_20');
+                }
+            }
+            // TARKISTUS 3: Tekoälyjen välinen taistelu (UUSI LOHKO)
+            // Tarkistetaan, onko molemmat (vanha ja uusi omistaja) olemassa,
+            // EIVÄTKÄ ne ole pelaaja.
+            if (action.oldOwnerId && action.newOwnerId &&
+                String(action.oldOwnerId) !== String(myPlayerId) &&
+                String(action.newOwnerId) !== String(myPlayerId)) {
+                
+                // Laukaistaan tapahtuma vain, jos siitä ei ole vielä kommentoitu.
+                if (!tutorialState.hasCommentedOnAIInfighting) {
+                    advanceTutorial('AI_INFIGHTING_DETECTED');
+                    // Asetetaan lippu, jotta viesti ei toistu.
+                    tutorialState.hasCommentedOnAIInfighting = true;
+                }
+            }
+
+            // TARKISTUS: Pelaaja valloitti ENSIMMÄISEN AI:n planeetan
+            // Tarkistetaan, onko uusi omistaja pelaaja, oliko vanha omistaja olemassa (ei neutraali)
+            // JA ettei tätä tutoriaalia ole vielä näytetty.
+            if (String(action.newOwnerId) === String(myPlayerId) && 
+                action.oldOwnerId && 
+                !tutorialState.hasConqueredFirstAIPlanet) {
+                
+                // Tarkistetaan vielä, että vanha omistaja ei ollut pelaaja itse (eli ei takaisinvaltaus).
+                const wasPreviouslyAI = String(action.oldOwnerId) !== String(myPlayerId);
+
+                if (wasPreviouslyAI) {
+                    advanceTutorial('FIRST_AI_PLANET_CONQUERED');
+                    tutorialState.hasConqueredFirstAIPlanet = true; // Asetetaan lippu
+                }
+            }
+
+            // TARKISTUS: Pelaaja valloitti AI:n kaivosplaneetan ENSIMMÄISTÄ kertaa
+            if (String(action.newOwnerId) === String(myPlayerId) && 
+                action.oldOwnerId && 
+                !tutorialState.hasCommentedOnMineCapture) {
+                
+                // Tarkistetaan, oliko vanha omistaja AI JA onko planeetalla kaivoksia.
+                const wasPreviouslyAI = String(action.oldOwnerId) !== String(myPlayerId);
+                const hasMines = action.starData && action.starData.mines > 0;
+
+                if (wasPreviouslyAI && hasMines) {
+                    advanceTutorial('AI_MINE_PLANET_CAPTURED');
+                    tutorialState.hasCommentedOnMineCapture = true; // Asetetaan lippu
+                }
+            }
+        }
+
         // =================================================================
         // TÄSTÄ ALASPÄIN ALKAA VARSINAINEN UI-PÄIVITYSLOGIIKKA (switch-case)
         // =================================================================
@@ -2590,6 +2741,10 @@ function updateUIFromDiff(diff) {
 
             // Käsittelee planeetalle sijoittuvan rakennuksen valmistumisen
             case 'COMPLETE_PLANETARY':
+                // Seurataan pelaajan rakentamia kaivoksia loreylistyksiä varten.
+                if (action.type === 'Mine' && isPlayerOwned(action)) {
+                    tutorialState.minesBuiltByPlayer++;
+                }
                 // Päivitä globaali pelitila (`gameState`) uusilla tähtitiedoilla
                 if (gameState && action.starData) {
                     const starIndex = gameState.stars.findIndex(s => s._id === action.starId);
@@ -2619,6 +2774,12 @@ function updateUIFromDiff(diff) {
                 if (selectedStar && selectedStar._id === action.starId) {
                     updateQueueTotalBars(action.starData.planetaryQueue, action.starData.shipQueue);
                 }
+                checkAIMilestones();     // Tarkistaa AI:n rakennusten määriä tutoriaali varten
+                checkCaptureStrategy();   // Kutsutaan vertailua jossa verrataan varastetut kaivokset vs rakennetut kaivokset
+                checkDefensiveStance();    // Tsekataan pelaajan puolustuksen taso kehuja varten  
+                checkStrategicAdvantages(); // Tarkastetaan telakoiden määrä
+                checkGameEndConditions(); // Tarkistetaan galaksin valloituksen prosentit
+                checkHubNetworkMilestones();  // Tarkistetaan hubien määrän kommentin vaatimukset
                 break;
                 
             case 'SHIP_SPAWNED':
@@ -2676,6 +2837,8 @@ function updateUIFromDiff(diff) {
                     // Päivitä koko jonon yhteiskestoa näyttävät palkit
                     updateQueueTotalBars(selectedStar.planetaryQueue, selectedStar.shipQueue);
                 }
+                checkEmpireSprawl();        // Tarkistetaan imperiumin koko suhteessa laivaston kokoon varoitusta varten
+                checkWarEffort();   // Tsekataan voitot/tappiot suhteessa AI:n voittoihin / tappioihin
                 break; 
 
             case 'SHIP_ARRIVED': {
@@ -2698,6 +2861,11 @@ function updateUIFromDiff(diff) {
             break;
 
             case 'SHIP_DESTROYED':
+                // Tarkistetaan, oliko tuhoutunut alus pelaajan oma (tutoriaalia/lorea varten).
+                if (action.ownerId && String(action.ownerId) === String(myPlayerId)) {
+                    tutorialState.playerHasSustainedLosses = true; 
+                    tutorialState.playerShipsLost++; // kasvatetaan tappiolaskuria
+                }
                 // Poista tuhoutunut alus paikallisesta `gameState`:sta
                 if (gameState && gameState.ships) {
                     const initialCount = gameState.ships.length;
@@ -2710,6 +2878,9 @@ function updateUIFromDiff(diff) {
                 }
                 updateGroupsPanel(); // Päivitä ryhmäpaneeli, koska aluksia on voinut tuhoutua
                 updateResourceDisplay(); // Päivitä ylläpitokulut
+                checkEmpireSprawl();    // Tarkistetaan imperiumin koko suhteessa laivaston kokoon varoitusta varten
+                checkCombatLosses();    // tarkistetaan tappioiden määrä
+                checkWarEffort();   // Tsekataan voitot/tappiot suhteessa AI:n voittoihin / tappioihin
                 break;
                 
             case 'STAR_UPDATED':
@@ -2761,11 +2932,27 @@ function updateUIFromDiff(diff) {
                 break;
                 
             case 'CONQUEST_COMPLETE':
+                // Seurataan pelaajan valloittamia kaivoksia.
+                if (String(action.newOwnerId) === String(myPlayerId)) {
+                    const wasPreviouslyAI = action.oldOwnerId && String(action.oldOwnerId) !== String(myPlayerId);
+                    const capturedMines = action.starData?.mines || 0;
+
+                    if (wasPreviouslyAI && capturedMines > 0) {
+                        tutorialState.minesCapturedFromAI += capturedMines;
+                    }
+                }
                 // Päivitä tähden tiedot valloituksen valmistuttua
                 if (selectedStar && selectedStar._id === action.starId) {
                     Object.assign(selectedStar, action.starData);
                     showPlanetMenu(selectedStar);
                 }
+                checkAIMilestones();        // Tarkistaa AI:n kaivosten määrän tutoriaali varten 
+                checkCaptureStrategy();     // Tarkistetaan rakennetut kaivokset vs varastetut kaivokset
+                checkDefensiveStance();     // Tarkistetaan pelaajan puolustustaso kehuja varten
+                checkEmpireSprawl();        // Tarkistetaan imperiumin koko suhteessa laivaston kokoon varoitusta varten
+                checkStrategicAdvantages(); // Tarkistaa strategiset edut, kuten telakoiden hallinnan, kommentteja varten
+                checkConquestPercentage();  // Tarkistaa galaksin valloituksen prosenttiosuuden
+                checkGameEndConditions();   // Tarkistetaan voitettiinko
                 break;
                 
             case 'CONQUEST_HALTED':
@@ -2810,6 +2997,68 @@ function formatTutorialText(text) {
 
 
 /**
+ * Tarkistaa, onko pelaajan strategia painottunut vihollisen kaivosten valloittamiseen,
+ * ja laukaisee tarvittaessa tutoriaalin.
+ */
+function checkCaptureStrategy() {
+    if (!tutorialState.isActive) return;
+
+    const totalPlayerMines = tutorialState.minesBuiltByPlayer + tutorialState.minesCapturedFromAI;
+    if (totalPlayerMines === 0) return; // Vältetään nollalla jakaminen
+
+    const captureRatio = tutorialState.minesCapturedFromAI / totalPlayerMines;
+
+    // Kehu 1: Kun pelaajalla on > 5 kaivosta ja väh. 40% on valloitettuja.
+    if (tutorialState.capturedMinePraiseLevel === 0 && totalPlayerMines > 5 && captureRatio >= 0.4) {
+        advanceTutorial('CAPTURE_STRATEGY_BOOST');
+        tutorialState.capturedMinePraiseLevel = 1;
+
+    // Kehu 2: Kun pelaajalla on > 20 kaivosta ja yli puolet on valloitettuja.
+    } else if (tutorialState.capturedMinePraiseLevel === 1 && totalPlayerMines >= 20 && captureRatio > 0.5) {
+        advanceTutorial('CAPTURE_STRATEGY_DOMINANCE');
+        tutorialState.capturedMinePraiseLevel = 2;
+    }
+}
+
+
+/**
+ * Tarkistaa, onko pelaaja saavuttanut merkittäviä strategisia virstanpylväitä,
+ * kuten valloittanut tietyn määrän planeettoja ilman tappioita.
+ */
+function checkStrategicMilestones() {
+    // Suoritetaan vain, jos pelaaja EI ole kärsinyt tappioita.
+    if (!tutorialState.isActive || tutorialState.playerHasSustainedLosses) {
+        return;
+    }
+    if (!gameState || !gameState.stars) return;
+
+    const playerStarCount = gameState.stars.filter(star => isPlayerOwned(star)).length;
+
+    // Tarkistus 1: 10 planeettaa, jos ensimmäinen kehu on vielä antamatta.
+    if (tutorialState.flawlessConquestLevel === 0 && playerStarCount >= 10) {
+        advanceTutorial('FLAWLESS_CONQUEST_10');
+        tutorialState.flawlessConquestLevel = 1; // Merkitään ensimmäinen kehu annetuksi.
+    
+    // Tarkistus 2: 30 planeettaa, jos toinen kehu on vielä antamatta.
+    } else if (tutorialState.flawlessConquestLevel === 1 && playerStarCount >= 30) {
+        advanceTutorial('FLAWLESS_CONQUEST_30');
+        tutorialState.flawlessConquestLevel = 2; // Merkitään toinen kehu annetuksi.
+
+    // Tarkistus 3: 50 planeettaa, jos kolmas kehu on vielä antamatta.
+    } else if (tutorialState.flawlessConquestLevel === 2 && playerStarCount >= 50) {
+        advanceTutorial('FLAWLESS_CONQUEST_50');
+        tutorialState.flawlessConquestLevel = 3; // Merkitään kolmas kehu annetuksi.
+
+    //  Tarkistus 4: 75 planeettaa
+    } else if (tutorialState.flawlessConquestLevel === 3 && playerStarCount >= 75) {
+        advanceTutorial('FLAWLESS_CONQUEST_75');
+        tutorialState.flawlessConquestLevel = 4; // Merkitään neljäs kehu annetuksi.
+    }
+
+}
+
+
+/**
  * Apufunktio, joka hoitaa kaiken tutoriaalin sulkemiseen liittyvän siivouksen.
  * @param {boolean} wasPaused - Oliko peli pausella ennen tutoriaalia.
  * @param {Function} keyPressHandler - Viittaus näppäimistökuuntelijaan, joka tulee poistaa.
@@ -2850,14 +3099,18 @@ function showTutorialMessage(stepOrStepId) {
     }
     
     const step = typeof stepOrStepId === 'string' ? tutorialSteps[stepOrStepId] : stepOrStepId;
-    const stepId = typeof stepOrStepId === 'string' ? stepOrStepId : null;
+    const stepId = typeof stepOrStepId === 'string' ? stepOrStepId : (step ? step.id : null); // Varmistetaan ID:n saanti
 
     if (!step) {
         closeAndCleanupTutorial(wasPausedBeforeTutorial, null);
         return;
     }
-    if (stepId) {
+    // Lisätään vaihe "suoritettuihin" VAIN, jos se EI ole toistettava.
+    if (stepId && !step.isRepeatable) {
         tutorialState.completedSteps.add(stepId);
+    }
+    // Päivitetään aina `lastStepId`, jotta ketjutus toimii, jos sitä tarvitaan.
+    if (stepId) {
         tutorialState.lastStepId = stepId;
     }
     if (!step.speaker && !step.text) {
@@ -2881,11 +3134,19 @@ function showTutorialMessage(stepOrStepId) {
     if (step.speaker === 'Valerius') {
         image.src = './assets/portraits/valerius.png';
         nameField.textContent = 'General Valerius';
-        panel.style.borderColor = '#dc3545';
-    } else {
+        panel.style.borderColor = '#dc3545'; // Punainen
+        
+    } else if (step.speaker === 'AI') {
+        // UUSI EHTO AI-PUHUJALLE
+        image.src = './assets/portraits/ai.png';
+        nameField.textContent = 'Unknown Signal'; // Arvoituksellinen nimi
+        panel.style.borderColor = '#9333ea';      // purppura erottumaan muista
+
+    } else { 
+        // Oletuksena Elara
         image.src = './assets/portraits/elara.png';
         nameField.textContent = 'Economist Elara';
-        panel.style.borderColor = '#63b3ed';
+        panel.style.borderColor = '#63b3ed'; // Sininen
     }
 
     panel.style.display = 'flex';
@@ -3038,13 +3299,67 @@ function advanceTutorial(triggerEvent, payload = {}) {
         }
         // Jos mikä tahansa triggeri täyttyi...
         if (triggerMet) {
-            // ...näytetään vastaava tutoriaalivaihe ja poistutaan heti.
-            showTutorialMessage(stepId);
-            return; // Näytetään vain yksi tutoriaali per tapahtuma
+            if (step.texts && Array.isArray(step.texts)) {
+                const randomText = step.texts[Math.floor(Math.random() * step.texts.length)];
+                const newStep = { ...step, text: randomText };
+                showTutorialMessage(newStep);
+            } else {
+                showTutorialMessage(stepId);
+            }
+            return;
         }
+        
     }
 }
 
+
+/**
+ * Tarkistaa pelaajan kärsimien alustappioiden määrän ja laukaisee
+ * tarvittaessa porrastettuja varoitusdialogeja.
+ */
+function checkCombatLosses() {
+    if (!tutorialState.isActive) return;
+
+    const losses = tutorialState.playerShipsLost;
+    const level = tutorialState.shipLossWarningLeveL;
+
+    // Varoitus 1: Ensimmäinen alus menetetty
+    if (level === 0 && losses >= 1) {
+        advanceTutorial('LOSSES_1'); // Uniikki tapahtumanimi
+        tutorialState.shipLossWarningLeveL = 1;
+
+    // Varoitus 2: 10 alusta menetetty
+    } else if (level === 1 && losses >= 10) {
+        advanceTutorial('LOSSES_10'); // Uniikki tapahtumanimi
+        tutorialState.shipLossWarningLeveL = 2;
+
+    // Varoitus 3: 25 alusta menetetty
+    } else if (level === 2 && losses >= 25) {
+        advanceTutorial('LOSSES_25'); // Uniikki tapahtumanimi
+        tutorialState.shipLossWarningLeveL = 3;
+
+    // Varoitus 4: 50 alusta menetetty
+    } else if (level === 3 && losses >= 50) { 
+        advanceTutorial('LOSSES_50'); // Uniikki tapahtumanimi
+        tutorialState.shipLossWarningLeveL = 4;
+
+    // Varoitus 5: 100 alusta menetetty
+    } else if (level === 4 && losses >= 100) {
+        advanceTutorial('LOSSES_100'); // Uniikki tapahtumanimi
+        tutorialState.shipLossWarningLeveL = 5;
+
+    // Varoitus 6: 200 alusta menetetty
+    } else if (level === 5 && losses >= 200) {
+        advanceTutorial('LOSSES_200'); // Uniikki tapahtumanimi
+        tutorialState.shipLossWarningLeveL = 6;
+    }
+
+    // AI:n välihuomautustauntti
+    if (!tutorialState.hasAITauntedLosses && tutorialState.playerShipsLost >= 15) {
+        advanceTutorial('AI_TAUNT_LOSSES');
+        tutorialState.hasAITauntedLosses = true;
+    }
+}
 
 /**
  * MITÄ: Tarkistaa, onko jokin uusi rakennusvaihtoehto tullut mahdolliseksi.
@@ -3133,6 +3448,413 @@ function animateText(element, text, totalDuration = 500) {
             i++;
         }
     }, delayPerChar);
+}
+
+
+/**
+ * Tarkistaa, onko tekoäly saavuttanut erilaisia virstanpylväitä
+ * ja laukaisee tarvittaessa tutoriaalitapahtumia.
+ */
+function checkAIMilestones() {
+    if (!tutorialState.isActive || !gameState || !gameState.stars) return;
+
+    // --- TARKISTUS 1: AI:n keskimääräinen kaivoskapasiteetti ---
+    if (tutorialState.aiMinePraiseLevel < 3) { // Tarkistetaan vain, jos kaikki kehut eivät ole vielä tulleet
+        const numberOfAIPlayers = gameState.players.filter(p => String(p._id) !== String(myPlayerId)).length;
+
+        if (numberOfAIPlayers > 0) {
+            const totalAIMines = gameState.stars
+                .filter(star => star.ownerId && String(star.ownerId) !== String(myPlayerId))
+                .reduce((sum, star) => sum + (star.mines || 0), 0);
+            const averageMinesPerAI = totalAIMines / numberOfAIPlayers;
+            
+            const level = tutorialState.aiMinePraiseLevel;
+
+            if (level === 0 && averageMinesPerAI >= 10) {
+                advanceTutorial('AI_MINES_10');
+                tutorialState.aiMinePraiseLevel = 1;
+            } else if (level === 1 && averageMinesPerAI >= 25) {
+                advanceTutorial('AI_MINES_25');
+                tutorialState.aiMinePraiseLevel = 2;
+            } else if (level === 2 && averageMinesPerAI >= 50) {
+                advanceTutorial('AI_MINES_50');
+                tutorialState.aiMinePraiseLevel = 3;
+            }
+        }
+    }
+
+    // --- TARKISTUS 2: AI:n ensimmäinen tason 2 telakka ---
+    if (!tutorialState.hasWarnedAboutAIShipyardLvl2) {
+        // Etsitään, onko YHDELLÄKÄÄN AI-planeetalla vähintään tason 2 telakka.
+        const aiHasLvl2Shipyard = gameState.stars.some(star =>
+            star.ownerId &&
+            String(star.ownerId) !== String(myPlayerId) &&
+            (star.shipyardLevel || 0) >= 2
+        );
+
+        if (aiHasLvl2Shipyard) {
+            advanceTutorial('AI_BUILT_SHIPYARD_LVL2');
+            tutorialState.hasWarnedAboutAIShipyardLvl2 = true;
+        }
+    }
+
+    // --- LISÄTTY TARKISTUS 3: AI:n ensimmäinen tason 3 telakka ---
+    if (!tutorialState.hasWarnedAboutAIShipyardLvl3) {
+        const aiHasLvl3Shipyard = gameState.stars.some(star =>
+            star.ownerId &&
+            String(star.ownerId) !== String(myPlayerId) &&
+            (star.shipyardLevel || 0) >= 3
+        );
+        if (aiHasLvl3Shipyard) {
+            advanceTutorial('AI_BUILT_SHIPYARD_LVL3');
+            tutorialState.hasWarnedAboutAIShipyardLvl3 = true;
+        }
+    }
+    
+    // Voit lisätä tulevaisuudessa tähän lisää `if`-ehtoja muille virstanpylväille!
+}
+
+/**
+ * Tarkistaa pelaajan puolustuksellisen strategian ja laukaisee
+ * tarvittaessa siihen liittyviä tutoriaaleja.
+ */
+function checkDefensiveStance() {
+    if (!tutorialState.isActive || !gameState || !gameState.stars) return;
+
+    // Lasketaan pelaajan planeettojen ja puolustustasojen kokonaismäärät.
+    const playerStars = gameState.stars.filter(star => isPlayerOwned(star));
+    const playerStarCount = playerStars.length;
+    if (playerStarCount === 0) return; // Vältetään turhat laskut, jos pelaajalla ei ole planeettoja.
+
+    const totalDefenseLevels = playerStars.reduce((sum, star) => sum + (star.defenseLevel || 0), 0);
+
+    // --- TARKISTUS 1: Porrastetut kehut puolustuksen määrästä ---
+    switch (tutorialState.defensivePraiseLevel) {
+        case 0:
+            if (playerStarCount < 8 && totalDefenseLevels >= 5) {
+                advanceTutorial('DEFENSIVE_STANCE_1');
+                tutorialState.defensivePraiseLevel = 1;
+            }
+            break;
+        case 1:
+            if (playerStarCount < 15 && totalDefenseLevels >= 10) {
+                advanceTutorial('DEFENSIVE_STANCE_2');
+                tutorialState.defensivePraiseLevel = 2;
+            }
+            break;
+        case 2:
+            if (playerStarCount < 25 && totalDefenseLevels >= 20) {
+                advanceTutorial('DEFENSIVE_STANCE_3');
+                tutorialState.defensivePraiseLevel = 3;
+            }
+            break;
+    }
+
+    // --- TARKISTUS 2: Onko KAIKKI planeetat puolustettu? ---
+    // Tarkistetaan vain, jos kaikki mahdolliset kehut eivät ole vielä tulleet.
+    if (tutorialState.totalDefensePraiseLevel < 3) {
+        const allPlanetsDefended = playerStars.every(star => (star.defenseLevel || 0) > 0);
+        
+        // Jos kaikki on puolustettu, tarkistetaan, mikä virstanpylväs on saavutettu.
+        if (allPlanetsDefended) {
+            if (tutorialState.totalDefensePraiseLevel === 0 && playerStarCount >= 10) {
+                advanceTutorial('TOTAL_DEFENSE_10');
+                tutorialState.totalDefensePraiseLevel = 1;
+            } else if (tutorialState.totalDefensePraiseLevel === 1 && playerStarCount >= 25) {
+                advanceTutorial('TOTAL_DEFENSE_25');
+                tutorialState.totalDefensePraiseLevel = 2;
+            } else if (tutorialState.totalDefensePraiseLevel === 2 && playerStarCount >= 50) {
+                advanceTutorial('TOTAL_DEFENSE_50');
+                tutorialState.totalDefensePraiseLevel = 3;
+            }
+        }
+    }
+
+    // --- UUSI TARKISTUS 3: Puolustuksen laiminlyönnin varoitukset ---
+    switch (tutorialState.neglectedDefenseWarningLeveL) {
+        case 0: // UUSI, VARHAINEN VAROITUS
+            if (playerStarCount >= 5 && totalDefenseLevels === 0) {
+                advanceTutorial('NEGLECTED_DEFENSE_0');
+                tutorialState.neglectedDefenseWarningLeveL = 1;
+            }
+            break;
+        case 1: // Aiempi taso 1 on nyt taso 2
+            if (playerStarCount >= 10 && totalDefenseLevels < 5) {
+                advanceTutorial('NEGLECTED_DEFENSE_1');
+                tutorialState.neglectedDefenseWarningLeveL = 2;
+            }
+            break;
+        case 2: // Aiempi taso 2 on nyt taso 3
+            if (playerStarCount >= 20 && totalDefenseLevels < 10) {
+                advanceTutorial('NEGLECTED_DEFENSE_2');
+                tutorialState.neglectedDefenseWarningLeveL = 3;
+            }
+            break;
+        case 3: // Aiempi taso 3 on nyt taso 4
+            if (playerStarCount >= 30 && totalDefenseLevels < 15) {
+                advanceTutorial('NEGLECTED_DEFENSE_3');
+                tutorialState.neglectedDefenseWarningLeveL = 4;
+            }
+            break;
+    }
+}
+
+
+/**
+ * Tarkistaa pelaajan rakentamien Galactic Hubien määrän ja laukaisee
+ * tarvittaessa virstanpylväskommentteja verkoston kasvaessa.
+ */
+function checkHubNetworkMilestones() {
+    if (!tutorialState.isActive || !gameState || !gameState.stars) return;
+
+    // Lasketaan pelaajan omistamien Hubien määrä.
+    const playerHubCount = gameState.stars
+        .filter(star => isPlayerOwned(star) && star.hasGalacticHub)
+        .length;
+
+    const level = tutorialState.hubNetworkPraiseLevel;
+
+    // Tarkistetaan eri virstanpylväät.
+    if (level === 0 && playerHubCount >= 3) {
+        advanceTutorial('HUB_NETWORK_3');
+        tutorialState.hubNetworkPraiseLevel = 1;
+
+    } else if (level === 1 && playerHubCount >= 6) {
+        advanceTutorial('HUB_NETWORK_6');
+        tutorialState.hubNetworkPraiseLevel = 2;
+
+    } else if (level === 2 && playerHubCount >= 9) {
+        advanceTutorial('HUB_NETWORK_9');
+        tutorialState.hubNetworkPraiseLevel = 3;
+    } else if (level === 3 && playerHubCount >= 12) {
+        advanceTutorial('HUB_NETWORK_12');
+        tutorialState.hubNetworkPraiseLevel = 4;
+    }
+}
+
+
+/**
+ * Tarkistaa, onko pelaajan imperiumi laajentunut vaarallisen nopeasti
+ * suhteessa laivaston kokoon, ja antaa tarvittaessa varoituksia.
+ */
+function checkEmpireSprawl() {
+    if (!tutorialState.isActive || !gameState || !gameState.stars || !gameState.ships) return;
+
+    // Lasketaan pelaajan omistamien tähtien ja alusten määrä.
+    const playerStarCount = gameState.stars.filter(star => isPlayerOwned(star)).length;
+    const playerShipCount = gameState.ships.filter(ship => isPlayerOwned(ship)).length;
+
+    // Määritellään kynnysarvot.
+    const FLEET_SIZE_THRESHOLD = 10;
+
+    // Porrastetut varoitukset
+    switch (tutorialState.empireSprawlWarningLeveL) {
+        case 0:
+            if (playerStarCount >= 20 && playerShipCount <= FLEET_SIZE_THRESHOLD) {
+                advanceTutorial('EMPIRE_SPRAWL_WARNING_1');
+                tutorialState.empireSprawlWarningLeveL = 1;
+            }
+            break;
+        case 1:
+            if (playerStarCount >= 40 && playerShipCount <= FLEET_SIZE_THRESHOLD) {
+                advanceTutorial('EMPIRE_SPRAWL_WARNING_2');
+                tutorialState.empireSprawlWarningLeveL = 2;
+            }
+            break;
+        case 2:
+            // Voit jatkaa tätä lisäämällä case 2, case 3 jne. tulevaisuudessa.
+            break;
+    }
+}
+
+
+/**
+ * Analysoi sotatilannetta vertaamalla pelaajan ja AI:n laivastojen voimaa
+ * sekä pelaajan kärsimiä tappioita, ja laukaisee kontekstisidonnaisia kommentteja.
+ */
+function checkWarEffort() {
+    if (!tutorialState.isActive || !gameState || !gameState.ships) return;
+
+    // Määritellään "voimapisteet" kullekin alustyypille.
+    const shipPower = { Fighter: 1, Destroyer: 2, Cruiser: 4, 'Slipstream Frigate': 1 };
+
+    let playerFleetPower = 0;
+    let aiFleetPower = 0;
+
+    // Lasketaan pelaajan ja AI:n laivastojen yhteenlasketut voimapisteet.
+    gameState.ships.forEach(ship => {
+        if (isPlayerOwned(ship)) {
+            playerFleetPower += shipPower[ship.type] || 0;
+        } else {
+            aiFleetPower += shipPower[ship.type] || 0;
+        }
+    });
+
+    // --- EHTO 1: Pelaaja on voitolla, mutta kärsii tappioita ("Winning Attrition") ---
+    // Laukeaa, jos pelaajalla on väh. 50% enemmän voimaa kuin AI:lla, mutta on menettänyt 20 alusta.
+    if (tutorialState.warEffortCommentLevel === 0 && playerFleetPower > (aiFleetPower * 1.5) && tutorialState.playerShipsLost >= 20) {
+        advanceTutorial('WAR_EFFORT_WINNING_ATTRITION');
+        tutorialState.warEffortCommentLevel = 1;
+    }
+
+    // --- EHTO 2: Pelaaja on häviöllä ja kärsii tappioita ("Losing Battle") ---
+    // Laukeaa, jos AI:lla on enemmän voimaa ja pelaaja on menettänyt 30 alusta.
+    else if (tutorialState.warEffortCommentLevel < 2 && aiFleetPower > playerFleetPower && tutorialState.playerShipsLost >= 30) {
+        advanceTutorial('WAR_EFFORT_LOSING_BATTLE');
+        tutorialState.warEffortCommentLevel = 2;
+    }
+}
+
+
+/**
+ * Käynnistää ajastimen, joka lähettää satunnaisia AI-viestejä
+ * pelaajalle tietyin väliajoin.
+ */
+function startAIMessageBroadcast() {
+    // Ajastin laukeaa satunnaisesti 3-5 minuutin välein.
+    const randomInterval = (Math.random() * 2 + 3) * 60 * 1000;
+
+    setTimeout(() => {
+        // Varmistetaan, että peli on käynnissä ja tutoriaali aktiivinen.
+        if (gameInProgress && tutorialState.isActive) {
+            
+            // Jos tämä on ensimmäinen viesti, laukaistaan erityinen tapahtuma.
+            if (!tutorialState.hasReceivedFirstAIMessage) {
+                advanceTutorial('AI_FIRST_CONTACT');
+                tutorialState.hasReceivedFirstAIMessage = true;
+            } else {
+                // Muussa tapauksessa laukaistaan yleinen satunnainen tapahtuma.
+                advanceTutorial('AI_RANDOM_BROADCAST');
+            }
+        }
+        
+        // Käynnistetään ajastin uudelleen seuraavaa viestiä varten.
+        startAIMessageBroadcast();
+
+    }, randomInterval);
+}
+
+
+/**
+ * Tarkistaa, onko peli päättynyt voittoon tai tappioon,
+ * ja laukaisee vastaavat tarinalliset tapahtumat.
+ */
+function checkGameEndConditions() {
+    if (!tutorialState.isActive || !gameState || !gameState.stars) return;
+
+    // Laske pelaajan ja AI:n planeettojen määrät
+    const playerStars = gameState.stars.filter(star => isPlayerOwned(star));
+    const aiStars = gameState.stars.filter(star => star.ownerId && !isPlayerOwned(star));
+
+    // --- TAPPION TARKISTUS ---
+    if (playerStars.length === 0 && !tutorialState.hasTriggeredDefeat) {
+        const playerShipCount = gameState.ships.filter(ship => isPlayerOwned(ship)).length;
+        
+        if (playerShipCount === 0) {
+            // Täydellinen tappio: ei planeettoja, ei aluksia.
+            advanceTutorial('PLAYER_DEFEAT_TOTAL');
+        } else {
+            // "Maanpaossa"-tappio: ei planeettoja, mutta laivasto on vielä olemassa.
+            advanceTutorial('PLAYER_DEFEAT_EXILE');
+        }
+        tutorialState.hasTriggeredDefeat = true;
+        tutorialState.isActive = false; // Peli päättyy, pysäytä tutoriaalit.
+    }
+    
+    // --- VOITON TARKISTUS ---
+    if (aiStars.length === 0 && playerStars.length > 0 && !tutorialState.hasTriggeredVictory) {
+        advanceTutorial('PLAYER_VICTORY');
+        tutorialState.hasTriggeredVictory = true;
+        tutorialState.isActive = false; // Peli päättyy, pysäytä tutoriaalit.
+    }
+}
+
+/**
+ * Tarkistaa strategiset edut, kuten telakoiden hallinnan, ja laukaisee
+ * tarvittaessa kommentteja pelin käännekohdista.
+ */
+function checkStrategicAdvantages() {
+    if (!tutorialState.isActive || !gameState || !gameState.stars) return;
+
+    // Lasketaan pelaajan ja AI:n omistamien telakoiden kokonaismäärä.
+    let playerShipyards = 0;
+    let aiShipyards = 0;
+
+    gameState.stars.forEach(star => {
+        if (star.shipyardLevel > 0) {
+            if (isPlayerOwned(star)) {
+                playerShipyards++;
+            } else if (star.ownerId) { // Varmistetaan, ettei lasketa neutraaleja
+                aiShipyards++;
+            }
+        }
+    });
+
+    // TARKISTUS 1: Pelaaja on menettänyt kaikki telakkansa
+    if (playerShipyards === 0 && !tutorialState.hasLostAllShipyards) {
+        // Varmistetaan, että peli on edennyt (pelaajalla on oltava ollut telakka aiemmin)
+        if (tutorialState.completedSteps.has('firstShipyardBuilt')) {
+            advanceTutorial('PLAYER_SHIPYARDS_LOST');
+            tutorialState.hasLostAllShipyards = true;
+        }
+    }
+
+    // TARKISTUS 2: AI on menettänyt kaikki telakkansa
+    if (aiShipyards === 0 && !tutorialState.hasCrippledAIShipyards) {
+        // Varmistetaan, että AI:lla on ylipäätään ollut telakka
+        if (tutorialState.hasWarnedAboutAIShipyardLvl2) {
+            advanceTutorial('AI_SHIPYARDS_DESTROYED');
+            tutorialState.hasCrippledAIShipyards = true;
+        }
+    }
+}
+
+
+/**
+ * Tarkistaa galaksin valloituksen prosenttiosuuden ja laukaisee
+ * virstanpylväskommentteja pelin edetessä.
+ */
+function checkConquestPercentage() {
+    if (!tutorialState.isActive || !gameState || !gameState.stars) return;
+
+    const totalStarCount = gameState.stars.length;
+    if (totalStarCount === 0) return;
+
+    // Lasketaan pelaajan ja AI:n planeettojen määrät
+    const playerStars = gameState.stars.filter(star => isPlayerOwned(star));
+    const aiStars = gameState.stars.filter(star => star.ownerId && !isPlayerOwned(star));
+    const playerStarCount = playerStars.length;
+    const aiStarCount = aiStars.length;
+
+    // Lasketaan prosenttiosuudet
+    const playerPct = (playerStarCount / totalStarCount) * 100;
+    const aiPct = (aiStarCount / totalStarCount) * 100;
+
+    // --- Pelaajan virstanpylväät ---
+    const pLevel = tutorialState.playerConquestPctLevel;
+    if (pLevel === 0 && playerPct >= 20) {
+        advanceTutorial('PLAYER_CONQUERED_20_PERCENT');
+        tutorialState.playerConquestPctLevel = 1;
+    } else if (pLevel === 1 && playerPct >= 50) {
+        advanceTutorial('PLAYER_CONQUERED_50_PERCENT');
+        tutorialState.playerConquestPctLevel = 2;
+    } else if (pLevel === 2 && playerPct >= 80) {
+        advanceTutorial('PLAYER_CONQUERED_80_PERCENT');
+        tutorialState.playerConquestPctLevel = 3;
+    } else if (pLevel === 3 && playerPct >= 95) {
+        advanceTutorial('PLAYER_CONQUERED_95_PERCENT');
+        tutorialState.playerConquestPctLevel = 4;
+    }
+
+    // --- AI:n virstanpylväät ---
+    const aiLevel = tutorialState.aiConquestPctLevel;
+    if (aiLevel === 0 && aiPct >= 50) {
+        advanceTutorial('AI_CONQUERED_50_PERCENT');
+        tutorialState.aiConquestPctLevel = 1;
+    } else if (aiLevel === 1 && aiPct >= 80) {
+        advanceTutorial('AI_CONQUERED_80_PERCENT');
+        tutorialState.aiConquestPctLevel = 2;
+    }
 }
 
 /* ========================================================================== */
@@ -3227,7 +3949,26 @@ function syncShipButtons() {
     });
 }
 
+/**
+ * Tarkistaa pelaajan taloudellisen tilan suhteessa laivaston kokoon
+ * ja laukaisee tarvittaessa "talouskriisi"-tutoriaalin.
+ * @param {number} netCredits - Pelaajan nettokrediittitulot per 10s.
+ * @param {number} shipUpkeep - Pelaajan laivaston yhteenlaskettu ylläpito.
+ */
+function checkEconomicState(netCredits, shipUpkeep) {
+    if (!tutorialState.isActive || tutorialState.hasTriggeredEconomicCrisis) {
+        return;
+    }
 
+    // UUDET EHDOT: Tulot miinuksella JA pelaajalla on vähintään yksi laiva.
+    const IS_IN_CRISIS = netCredits < 0;
+    const HAS_ANY_FLEET = shipUpkeep > 0;
+
+    if (IS_IN_CRISIS && HAS_ANY_FLEET) {
+        advanceTutorial('ECONOMIC_CRISIS_FLEET_RELATED');
+        tutorialState.hasTriggeredEconomicCrisis = true;
+    }
+}
 
 // Apufunktio triggerin ja pelitapahtuman vertailuun.
 const checkCondition = (condition) => {
