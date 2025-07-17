@@ -79,52 +79,81 @@ const DEFAULT_AI_COLORS = [
  * joustavan, tapahtumapohjaisen logiikan ilman, että viestejä toistetaan turhaan.
  */
 const tutorialState = {
-    // Kertoo, onko koko tutoriaalijärjestelmä aktiivinen. Voidaan asettaa epätodeksi esim. asetuksista.
+    // === YDINOMINAISUUDET ===
+
+    // Onko tutoriaalijärjestelmä päällä. Asettamalla epätodeksi estetään kaikki tulevat viestit.
     isActive: true,
-    
-    // Set, joka sisältää kaikkien jo näytettyjen tutoriaalivaiheiden ID:t.
-    // Tämä on järjestelmän ydintoiminto, joka estää saman viestin näyttämisen useaan kertaan.
+    // Set, joka sisältää kaikkien jo näytettyjen (ei-toistettavien) tutoriaalivaiheiden ID:t.
     completedSteps: new Set(),
-    
-    // Viimeisimmän näytetyn tutoriaalivaiheen ID. Tarvitaan lyhyiden, peräkkäisten
-    // dialogien (esim. Elara -> Valerius) toteuttamiseen `TUTORIAL_CONTINUE`-tapahtumalla.
-    lastStepId: null, 
-    
-    // Set, joka pitää kirjaa niistä alustyypeistä, joiden 'ensimmäinen rakennettu' -viesti on
-    // jo näytetty. Varmistaa, että viesti laukeaa vain kerran per alustyyppi.
-    shownFirstShipMessages: new Set(), 
+    // Viimeisimmän näytetyn vaiheen ID. Välttämätön peräkkäisille dialogeille ('TUTORIAL_CONTINUE').
+    lastStepId: null,
 
-    hasTriggeredVictory: false,     //Kaikki valloitettu -> Voitto
-    hasTriggeredDefeat: false,      // Kaikki menetetty -> Tappio
-    playerPlanetsLost: 0, // Laskuri menetetyille planeetoille.
-    playerPlanetsConquered: 0, // Laskuri valloitetuille planeetoille.
-    hasCommentedOnAIInfighting: false, // Lippu AI:n keskinäiselle sodalle.
-    aiMinePraiseLevel: 0, // Lipputaso AI:n kaivosten kommentoinnin seuraamiselle
-    hasWarnedAboutAIShipyardLvl2: false, // Lippu kun AI rakentaa telakka lvl 2
-    hasConqueredFirstAIPlanet: false, // Onko pelaaja vielä valloittanut yhtäkään AI.n planeettaa -lippu
-    hasCommentedOnMineCapture: false, // Onko kommentoitu kaivosplaneetan valtausta AI:lta
-    hasTriggeredEconomicCrisis: false, // Onko kommentoitu kun credit-income menee miinukselle
-    playerHasSustainedLosses: false,    // Muuttuu todeksi heti ensimmäisestä menetyksestä.
-    flawlessConquestLevel: 0, // 0 = ei kehuja, 1 = 10 planeettaa, 2 = 30 jne.
-    minesBuiltByPlayer: 0,  // Seurataan pelaajan rakentamia kaivoksia vertailuksi kehuja varten 
-    minesCapturedFromAI: 0, // Seurataan varastettuja kaivoksia kehuja varten 
-    capturedMinePraiseLevel: 0, // Kehutaso kaapatuista kaivoksista
-    defensivePraiseLevel: 0,      // Seuraa, mikä puolustuskehu on annettu.
-    neglectedDefenseWarningLeveL: 0,  // Seuraa mikä puolustusvaroitus on annettu
-    totalDefensePraiseLevel: 0,  // Seuraa, mikä puolustuskehu on annettu, kun KAIKKI planeetat on puolustettu
-    empireSprawlWarningLeveL: 0,  // kasvavan imperiumin varoituksen seurantatasot
-    hasReceivedFirstAIMessage: false, // AI:n satunnaisviesti
-    playerShipsLost: 0,           // Laskuri pelaajan menettämille aluksille.
-    shipLossWarningLeveL: 0,       // Seuraa, mikä tappiovaroitus on annettu.
-    warEffortCommentLevel: 0,   // Seuraa, mikä sotatilannekommentti on annettu.
-    hasAITauntedLosses: false,  // Onko AI kommentoinut pelaajan tappioita
-    hasCrippledAIShipyards: false,  // Jos kaikki AI:n shipyardit on valloitettu 
-    hasLostAllShipyards: false,  // Jos kaikki pelaajan shipyardit on valloitettu
-    playerConquestPctLevel: 0,  // Pelaajan valloittama prosenttiosuus galaksista 
-    aiConquestPctLevel: 0,  // AI:n valloittama prosenttiosuus galaksista
-    hubNetworkPraiseLevel: 0,  // Galactic hubien määrän laskuri
-    hasWarnedAboutAIShipyardLvl3: false  // Onko varoitettu että AI sai juuri shipyard lvl 3:n 
+    
+    // === ENSIKERTALAISET TAPAHTUMAT (LIPUT) ===
+    // Set, joka seuraa, minkä alustyyppien "ensimmäinen rakennettu" -viesti on jo näytetty.
+    shownFirstShipMessages: new Set(),
+    // Onko pelaaja vastaanottanut ensimmäisen kryptisen AI-viestin.
+    hasReceivedFirstAIMessage: false,
+    // Onko pelaaja valloittanut ensimmäisen AI-planeettansa.
+    hasConqueredFirstAIPlanet: false,
+    // Onko pelaajan tappioista kommentoitu AI:n toimesta.
+    hasAITauntedLosses: false,
+    // Onko kommentoitu sitä, kun kaksi AI:ta sotii keskenään.
+    hasCommentedOnAIInfighting: false,
+    // Onko talouskriisivaroitus (negatiivinen tulovirta) lauennut.
+    hasTriggeredEconomicCrisis: false,
+    // Onko pelaaja menettänyt kaikki telakkansa.
+    hasLostAllShipyards: false,
+    // Onko AI:n kaikki telakat tuhottu.
+    hasCrippledAIShipyards: false,
+    // Onko voitto-dialogi jo näytetty.
+    hasTriggeredVictory: false,
 
+    // === PELAAJAN SAAVUTUKSET JA VAROITUKSET (LASKURIT) ===
+    // Häviötilan tilat: 0 = Peli käynnissä, 1 = Maanpaossa (ei planeettoja, vain aluksia), 2 = Täysin hävitty (ei aluksia, ei planeettoja)
+    defeatStateLevel: 0, 
+    // Pelaajan valloittamien planeettojen määrä.
+    playerPlanetsConquered: 0,
+    // Seuraa, mikä valloitusprosentin kehu on annettu (20%, 50%, jne.).
+    playerConquestPctLevel: 0,
+    // Seuraa "virheettömän valloituksen" kehujen tasoa (10, 30, 50 planeettaa ilman tappioita).
+    flawlessConquestLevel: 0,
+    // Seuraa pelaajan rakentamien kaivosten määrää.
+    minesBuiltByPlayer: 0,
+    // Seuraa AI:lta valloitettujen kaivosten määrää.
+    minesCapturedFromAI: 0,
+    // Seuraa "kaivoskaappausstrategian" kehujen tasoa.
+    capturedMinePraiseLevel: 0,
+    // Seuraa "kilpikonnapuolustuksen" kehujen tasoa.
+    defensivePraiseLevel: 0,
+    // Seuraa "täydellisen puolustuksen" (jokainen planeetta suojattu) kehujen tasoa.
+    totalDefensePraiseLevel: 0,
+    // Seuraa Galactic Hub -verkoston rakentamisen kehujen tasoa.
+    hubNetworkPraiseLevel: 0,
+    // Seuraa "ylilaajentumisen" varoitusten tasoa (liikaa planeettoja, liian vähän laivoja).
+    empireSprawlWarningLeveL: 0,
+    // Pelaajan menettämien alusten kokonaismäärä.
+    playerShipsLost: 0,
+    // Seuraa porrastettujen tappiovaroitusten tasoa (1, 10, 25 alusta jne.).
+    shipLossWarningLeveL: 0,
+    // Onko pelaaja menettänyt yhdenkään aluksen tai planeetan. Estää "virheetön valloitus" -kehut.
+    playerHasSustainedLosses: false,
+    // Laskuri menetetyille planeetoille.
+    playerPlanetsLost: 0, 
+    // Seuraa suhteellisen sotatilanteen kommentoinnin tasoa.
+    warEffortCommentLevel: 0,
+    // Seuraa puolustuksen laiminlyönnin varoitusten tasoa.
+    neglectedDefenseWarningLeveL: 0, 
+    
+    // === TEKOÄLYN TILAN SEURANTA ===
+    // Seuraa AI:n kaivostuotannon virstanpylväiden tasoa.
+    aiMinePraiseLevel: 0,
+    // Onko varoitettu AI:n tason 2 telakasta.
+    hasWarnedAboutAIShipyardLvl2: false,
+    // Onko varoitettu AI:n tason 3 telakasta.
+    hasWarnedAboutAIShipyardLvl3: false,
+    // Seuraa AI:n valloitusprosentin tasoa.
+    aiConquestPctLevel: 0,
 };
 
 let tutorialMessageQueue = [];      // Taulukko, joka toimii odottavien viestien jonona.
@@ -1085,7 +1114,7 @@ function resetClientState() {
     tutorialState.shipLossWarningLeveL = 0; // nollataan alustappiovaroituslaskuri
     tutorialState.warEffortCommentLevel = 0;    // Kuinka menee suhteessa viholliseen (attritiokommentit)
     tutorialState.hasAITauntedLosses = false;   // Onko AI haukkunt häviöitä
-    tutorialState.hasTriggeredDefeat = false; // Onko hävitty
+    tutorialState.defeatStateLevel = 0; // Onko hävitty ja kuinka pahasti
     tutorialState.hasTriggeredVictory = false;  // Onko voitettu 
     tutorialState.hasCrippledAIShipyards = false;   // Onko AI:n kaikki shipyardit valloitettu
     tutorialState.hasLostAllShipyards = false;  // Onko pelaajan kaikki shipyardit valloitettu
@@ -2637,10 +2666,18 @@ function updateUIFromDiff(diff) {
         // Tämän kutsun jälkeen advanceTutorial-funktio päättää, näytetäänkö jokin tutoriaalivaihe.
         advanceTutorial(action.action, tutorialPayload);
 
-        // Pelajaan planeettojen menetyksen erillinen tarkistus
+        // =================================================================
+        // ERIKOISTAPAHTUMIEN TARKISTUS JA LAUKAISU
+        // =================================================================
+        // Nämä lohkot tarkistavat, aiheuttiko päätapahtuma jonkin suuremman
+        // virstanpylvään tai tilanteen, joka ansaitsee oman tutoriaalikommenttinsa.
+
+        // --- Valloitukseen liittyvät erikoistapahtumat ---
         if (action.action === 'CONQUEST_COMPLETE') {
-            // Tarkistetaan, oliko planeetan EDELLINEN omistaja pelaaja.
+
+            // A) Pelaaja menetti planeetan
             if (action.oldOwnerId && String(action.oldOwnerId) === String(myPlayerId)) {
+                // Menetys merkitään todeksi ("Täydellinen peli" ei enää tosi)
                 tutorialState.playerHasSustainedLosses = true;
                 // Kasvatetaan menetettyjen planeettojen laskuria.
                 tutorialState.playerPlanetsLost++;
@@ -2649,32 +2686,28 @@ function updateUIFromDiff(diff) {
                 if (tutorialState.playerPlanetsLost === 1) {
                     // Laukaise tapahtuma ensimmäiselle menetykselle.
                     advanceTutorial('PLANET_LOST_FIRST', { isPlayerLoss: true });
-                    
-                } else if (tutorialState.playerPlanetsLost === 3) { // Esimerkiksi kolmen planeetan jälkeen
-                    // Laukaise tapahtuma, kun useita planeettoja on menetetty.
+                } else if (tutorialState.playerPlanetsLost === 3) { // kolmen planeetan jälkeen
                     advanceTutorial('PLANET_LOST_MULTIPLE', { isPlayerLoss: true });
-                    
                 } else if (tutorialState.playerPlanetsLost === 10) { // Ja kymmenen jälkeen
-                    // Laukaise tapahtuma, kun tilanne on katastrofaalinen.
                     advanceTutorial('PLANET_LOST_CATASTROPHE', { isPlayerLoss: true });
                 }
             }
 
-            // TARKISTUS 2: Pelaaja valloitti planeetan 
+            // B) Pelaaja valloitti planeetan
             if (String(action.newOwnerId) === String(myPlayerId)) {
                 tutorialState.playerPlanetsConquered++;
-                //tarkistetaan strategiset kehumilestonet
+                // Tarkistetaan ""täydellisen pelin" kehut.
                 checkStrategicMilestones();
-                // Laukaistaan eri tutoriaalitapahtumia virstanpylväiden mukaan.
+                // Laukaistaan yleiset valloituksen virstanpylväät.
                 if (tutorialState.playerPlanetsConquered === 5) {
                     advanceTutorial('CONQUEST_MILESTONE_5');
                 } else if (tutorialState.playerPlanetsConquered === 20) {
                     advanceTutorial('CONQUEST_MILESTONE_20');
                 }
             }
-            // TARKISTUS 3: Tekoälyjen välinen taistelu (UUSI LOHKO)
-            // Tarkistetaan, onko molemmat (vanha ja uusi omistaja) olemassa,
-            // EIVÄTKÄ ne ole pelaaja.
+
+            // C) Tekoälyt sotivat keskenään:
+            // Tarkistetaan, onko molemmat (vanha ja uusi omistaja) olemassa, EIVÄTKÄ ne ole pelaaja.
             if (action.oldOwnerId && action.newOwnerId &&
                 String(action.oldOwnerId) !== String(myPlayerId) &&
                 String(action.newOwnerId) !== String(myPlayerId)) {
@@ -2687,7 +2720,7 @@ function updateUIFromDiff(diff) {
                 }
             }
 
-            // TARKISTUS: Pelaaja valloitti ENSIMMÄISEN AI:n planeetan
+            // D) Pelaaja valloitti ensimmäisen AI-planeettansa
             // Tarkistetaan, onko uusi omistaja pelaaja, oliko vanha omistaja olemassa (ei neutraali)
             // JA ettei tätä tutoriaalia ole vielä näytetty.
             if (String(action.newOwnerId) === String(myPlayerId) && 
@@ -2703,7 +2736,7 @@ function updateUIFromDiff(diff) {
                 }
             }
 
-            // TARKISTUS: Pelaaja valloitti AI:n kaivosplaneetan ENSIMMÄISTÄ kertaa
+            // E) Pelaaja valloitti ensimmäisen AI:n kaivosplaneetan
             if (String(action.newOwnerId) === String(myPlayerId) && 
                 action.oldOwnerId && 
                 !tutorialState.hasCommentedOnMineCapture) {
@@ -2718,7 +2751,7 @@ function updateUIFromDiff(diff) {
                 }
             }
         }
-
+        
         // =================================================================
         // TÄSTÄ ALASPÄIN ALKAA VARSINAINEN UI-PÄIVITYSLOGIIKKA (switch-case)
         // =================================================================
@@ -2774,12 +2807,15 @@ function updateUIFromDiff(diff) {
                 if (selectedStar && selectedStar._id === action.starId) {
                     updateQueueTotalBars(action.starData.planetaryQueue, action.starData.shipQueue);
                 }
-                checkAIMilestones();     // Tarkistaa AI:n rakennusten määriä tutoriaali varten
-                checkCaptureStrategy();   // Kutsutaan vertailua jossa verrataan varastetut kaivokset vs rakennetut kaivokset
-                checkDefensiveStance();    // Tsekataan pelaajan puolustuksen taso kehuja varten  
-                checkStrategicAdvantages(); // Tarkastetaan telakoiden määrä
-                checkGameEndConditions(); // Tarkistetaan galaksin valloituksen prosentit
-                checkHubNetworkMilestones();  // Tarkistetaan hubien määrän kommentin vaatimukset
+
+                // Tarkistetaan dynaamiset tutoriaalitapahtumat, jotka EIVÄT ole suoria seurauksia
+                // pelkästä päätapahtumasta, vaan vaativat koko pelitilan analysointia.
+                checkAIMilestones();     // Tarkistaa, onko tekoäly saavuttanut teknologisia virstanpylväitä (esim. parempi telakka).
+                checkCaptureStrategy();  // Analysoi, painottuuko pelaajan strategia vihollisen kaivosten valloittamiseen.
+                checkDefensiveStance();  // Analysoi pelaajan puolustuksellista pelityyliä (antaa kehuja ja varoituksia).
+                checkStrategicAdvantages(); // Tarkistaa strategisen käännekohdan: onko jompikumpi menettänyt kaikki telakkansa.
+                checkGameEndConditions();   // Tarkistaa pelin absoluuttiset voitto/tappio-ehdot (0 planeettaa).
+                checkHubNetworkMilestones();  // Seuraa pelaajan rakentaman Galactic Hub -verkoston laajuutta.
                 break;
                 
             case 'SHIP_SPAWNED':
@@ -2837,8 +2873,8 @@ function updateUIFromDiff(diff) {
                     // Päivitä koko jonon yhteiskestoa näyttävät palkit
                     updateQueueTotalBars(selectedStar.planetaryQueue, selectedStar.shipQueue);
                 }
-                checkEmpireSprawl();        // Tarkistetaan imperiumin koko suhteessa laivaston kokoon varoitusta varten
-                checkWarEffort();   // Tsekataan voitot/tappiot suhteessa AI:n voittoihin / tappioihin
+                checkEmpireSprawl(); // Varoittaa, jos imperiumi laajenee liian nopeasti suhteessa laivaston kokoon.
+                checkWarEffort();   // Vertaa pelaajan ja AI:n suhteellista laivastovoimaa ja antaa kommentteja sotatilanteesta.
                 break; 
 
             case 'SHIP_ARRIVED': {
@@ -2878,9 +2914,10 @@ function updateUIFromDiff(diff) {
                 }
                 updateGroupsPanel(); // Päivitä ryhmäpaneeli, koska aluksia on voinut tuhoutua
                 updateResourceDisplay(); // Päivitä ylläpitokulut
-                checkEmpireSprawl();    // Tarkistetaan imperiumin koko suhteessa laivaston kokoon varoitusta varten
-                checkCombatLosses();    // tarkistetaan tappioiden määrä
-                checkWarEffort();   // Tsekataan voitot/tappiot suhteessa AI:n voittoihin / tappioihin
+                checkEmpireSprawl();    // Varoittaa, jos imperiumi laajenee liian nopeasti suhteessa laivaston kokoon.
+                checkCombatLosses();    // Seuraa pelaajan alustappioiden kokonaismäärää ja antaa porrastettuja kommentteja.
+                checkWarEffort();       // Vertaa pelaajan ja AI:n suhteellista laivastovoimaa ja antaa kommentteja sotatilanteesta.
+                checkGameEndConditions(); // Tarkastellaan planeettojen ja alusten määrää, onko totaalinen tappio vai totaalinen voitto
                 break;
                 
             case 'STAR_UPDATED':
@@ -2946,13 +2983,13 @@ function updateUIFromDiff(diff) {
                     Object.assign(selectedStar, action.starData);
                     showPlanetMenu(selectedStar);
                 }
-                checkAIMilestones();        // Tarkistaa AI:n kaivosten määrän tutoriaali varten 
-                checkCaptureStrategy();     // Tarkistetaan rakennetut kaivokset vs varastetut kaivokset
-                checkDefensiveStance();     // Tarkistetaan pelaajan puolustustaso kehuja varten
-                checkEmpireSprawl();        // Tarkistetaan imperiumin koko suhteessa laivaston kokoon varoitusta varten
-                checkStrategicAdvantages(); // Tarkistaa strategiset edut, kuten telakoiden hallinnan, kommentteja varten
+                checkAIMilestones();        // Tarkistaa, onko tekoäly saavuttanut teknologisia virstanpylväitä (esim. parempi telakka).
+                checkCaptureStrategy();     // Analysoi, painottuuko pelaajan strategia vihollisen kaivosten valloittamiseen.
+                checkDefensiveStance();     // Analysoi pelaajan puolustuksellista pelityyliä (antaa kehuja ja varoituksia).
+                checkEmpireSprawl();        // Varoittaa, jos imperiumi laajenee liian nopeasti suhteessa laivaston kokoon.
+                checkStrategicAdvantages(); // Tarkistaa strategisen käännekohdan: onko jompikumpi menettänyt kaikki telakkansa.
                 checkConquestPercentage();  // Tarkistaa galaksin valloituksen prosenttiosuuden
-                checkGameEndConditions();   // Tarkistetaan voitettiinko
+                checkGameEndConditions();   // Seuraa, kuinka suuren osan galaksista pelaaja tai AI hallitsee.
                 break;
                 
             case 'CONQUEST_HALTED':
@@ -2972,113 +3009,36 @@ function updateUIFromDiff(diff) {
 /* TUTORIAL SYSTEM                                                            */
 /* ========================================================================== */
 
-// Globaali muuttuja, joka pitää kirjaa käynnissä olevasta animaatiosta.
-// Tarvitsemme tämän, jotta voimme keskeyttää animaation, jos pelaaja sulkee ikkunan liian nopeasti.
+// Globaali muuttuja, joka pitää kirjaa käynnissä olevasta tekstianimaatiosta.
+// Tarvitaan, jotta animaatio voidaan keskeyttää siististi, jos pelaaja
+// sulkee tai ohittaa tutoriaali-ikkunan.
 let activeTextAnimation = null; 
 
 
 /**
- * MITÄ: Muuntaa tutoriaalin tekstin Markdown-syntaksin HTML-muotoon.
- * MIKSI: Mahdollistaa tekstin muotoilun, kuten lihavoinnin ja rivinvaihdot,
- * suoraan tutorialScript.js-tiedostosta. 
- * @param {string} text - Muotoilematon teksti.
- * @returns {string} - HTML-muotoiltu merkkijono.
- */
-function formatTutorialText(text) {
-    // Varmistetaan, ettei tyhjä text-muuttuja aiheuta virhettä.
-    if (!text) return '';
-    // Ketjutetaan kaksi replace-metodia:
-    return text
-        // 1. Etsii kaikki kaksoistähtien sisällä olevat merkkijonot ja korvaa ne <strong>-tageilla.
-        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-        // 2. Etsii kaikki rivinvaihtomerkit (\n) ja korvaa ne HTML:n <br>-tageilla.
-        .replace(/\n/g, '<br>');
-}
-
-
-/**
- * Tarkistaa, onko pelaajan strategia painottunut vihollisen kaivosten valloittamiseen,
- * ja laukaisee tarvittaessa tutoriaalin.
- */
-function checkCaptureStrategy() {
-    if (!tutorialState.isActive) return;
-
-    const totalPlayerMines = tutorialState.minesBuiltByPlayer + tutorialState.minesCapturedFromAI;
-    if (totalPlayerMines === 0) return; // Vältetään nollalla jakaminen
-
-    const captureRatio = tutorialState.minesCapturedFromAI / totalPlayerMines;
-
-    // Kehu 1: Kun pelaajalla on > 5 kaivosta ja väh. 40% on valloitettuja.
-    if (tutorialState.capturedMinePraiseLevel === 0 && totalPlayerMines > 5 && captureRatio >= 0.4) {
-        advanceTutorial('CAPTURE_STRATEGY_BOOST');
-        tutorialState.capturedMinePraiseLevel = 1;
-
-    // Kehu 2: Kun pelaajalla on > 20 kaivosta ja yli puolet on valloitettuja.
-    } else if (tutorialState.capturedMinePraiseLevel === 1 && totalPlayerMines >= 20 && captureRatio > 0.5) {
-        advanceTutorial('CAPTURE_STRATEGY_DOMINANCE');
-        tutorialState.capturedMinePraiseLevel = 2;
-    }
-}
-
-
-/**
- * Tarkistaa, onko pelaaja saavuttanut merkittäviä strategisia virstanpylväitä,
- * kuten valloittanut tietyn määrän planeettoja ilman tappioita.
- */
-function checkStrategicMilestones() {
-    // Suoritetaan vain, jos pelaaja EI ole kärsinyt tappioita.
-    if (!tutorialState.isActive || tutorialState.playerHasSustainedLosses) {
-        return;
-    }
-    if (!gameState || !gameState.stars) return;
-
-    const playerStarCount = gameState.stars.filter(star => isPlayerOwned(star)).length;
-
-    // Tarkistus 1: 10 planeettaa, jos ensimmäinen kehu on vielä antamatta.
-    if (tutorialState.flawlessConquestLevel === 0 && playerStarCount >= 10) {
-        advanceTutorial('FLAWLESS_CONQUEST_10');
-        tutorialState.flawlessConquestLevel = 1; // Merkitään ensimmäinen kehu annetuksi.
-    
-    // Tarkistus 2: 30 planeettaa, jos toinen kehu on vielä antamatta.
-    } else if (tutorialState.flawlessConquestLevel === 1 && playerStarCount >= 30) {
-        advanceTutorial('FLAWLESS_CONQUEST_30');
-        tutorialState.flawlessConquestLevel = 2; // Merkitään toinen kehu annetuksi.
-
-    // Tarkistus 3: 50 planeettaa, jos kolmas kehu on vielä antamatta.
-    } else if (tutorialState.flawlessConquestLevel === 2 && playerStarCount >= 50) {
-        advanceTutorial('FLAWLESS_CONQUEST_50');
-        tutorialState.flawlessConquestLevel = 3; // Merkitään kolmas kehu annetuksi.
-
-    //  Tarkistus 4: 75 planeettaa
-    } else if (tutorialState.flawlessConquestLevel === 3 && playerStarCount >= 75) {
-        advanceTutorial('FLAWLESS_CONQUEST_75');
-        tutorialState.flawlessConquestLevel = 4; // Merkitään neljäs kehu annetuksi.
-    }
-
-}
-
-
-/**
- * Apufunktio, joka hoitaa kaiken tutoriaalin sulkemiseen liittyvän siivouksen.
+ * MITÄ: Hoitaa kaiken tutoriaali-ikkunan sulkemiseen liittyvän siivouksen.
+ * MIKSI: Keskittää siivouslogiikan yhteen paikkaan, jota sekä "Close"- että "Skip"-napit
+ * voivat kutsua. Vähentää koodin toistoa ja helpottaa ylläpitoa.
  * @param {boolean} wasPaused - Oliko peli pausella ennen tutoriaalia.
  * @param {Function} keyPressHandler - Viittaus näppäimistökuuntelijaan, joka tulee poistaa.
  */
 function closeAndCleanupTutorial(wasPaused, keyPressHandler) {
-    // Siivotaan kuuntelijat ja animaatiot.
+    // Poistetaan näppäimistökuuntelija, jotta se ei jää aktiiviseksi taustalle.
     if (keyPressHandler) {
         document.removeEventListener('keydown', keyPressHandler);
     }
+    // Pysäytetään ja nollataan tekstianimaatio, jos se on kesken.
     if (activeTextAnimation) {
         clearInterval(activeTextAnimation);
         activeTextAnimation = null;
     }
 
-    // Piilotetaan UI.
+    // Piilotetaan tutoriaalipaneeli ja poistetaan kaikki korostukset.
     const panel = document.getElementById('tutorialPanel');
     if (panel) panel.style.display = 'none';
     highlightElement(null);
 
-    // Jatketaan peliä, jos se pausetettiin vain tutoriaalia varten.
+    // Jatketaan peliä vain, jos se pausetettiin nimenomaan tutoriaalia varten.
     if (!wasPaused) {
         resumeGame();
     }
@@ -3088,60 +3048,64 @@ function closeAndCleanupTutorial(wasPaused, keyPressHandler) {
 /**
  * MITÄ: Näyttää tutoriaalipaneelin ja päivittää sen sisällön.
  * MIKSI: Tämä on keskitetty funktio tutoriaalin visuaaliselle puolelle.
- * Päivitetty versio animoi tekstin, hyväksyy näppäimistökomentoja ja
- * pausentaa pelin automaattisesti viestin ajaksi.
+ * Se vastaa kaikesta: pelin pausetuksesta, paneelin tietojen päivittämisestä,
+ * animaatioista ja nappien toiminnallisuudesta.
  * @param {string|object} stepOrStepId - Tutoriaalivaiheen ID tai suora vaihe-objekti.
  */
 function showTutorialMessage(stepOrStepId) {
+    // VAIHE 1: PELIN AUTOMAATTINEN PAUSETUS
     const wasPausedBeforeTutorial = isPaused;
     if (!wasPausedBeforeTutorial) {
         pauseGame();
     }
     
+    // VAIHE 2: DATAN ALUSTUS JA TILANPÄIVITYS
     const step = typeof stepOrStepId === 'string' ? tutorialSteps[stepOrStepId] : stepOrStepId;
     const stepId = typeof stepOrStepId === 'string' ? stepOrStepId : (step ? step.id : null); // Varmistetaan ID:n saanti
 
+    // Jos vaihetta ei löydy, siivotaan ja poistutaan.
     if (!step) {
         closeAndCleanupTutorial(wasPausedBeforeTutorial, null);
         return;
     }
-    // Lisätään vaihe "suoritettuihin" VAIN, jos se EI ole toistettava.
+
+    // Merkitään vaihe suoritetuksi (jos se ei ole toistettava).
     if (stepId && !step.isRepeatable) {
         tutorialState.completedSteps.add(stepId);
     }
-    // Päivitetään aina `lastStepId`, jotta ketjutus toimii, jos sitä tarvitaan.
+    // Päivitetään aina viimeisin vaihe dialogiketjuja varten.
     if (stepId) {
         tutorialState.lastStepId = stepId;
     }
+    // Jos vaihe on "näkymätön" (esim. risteyskohta), siivotaan ja poistutaan.
     if (!step.speaker && !step.text) {
-        // KORJAUS 2: Lisätty siivouskutsu tähän, jotta peli ei jää paussille.
         closeAndCleanupTutorial(wasPausedBeforeTutorial, null); 
         return;
     }
     
-    // --- VAIHE 2: DOM-ELEMENTTIEN HAKU ---
+    // VAIHE 3: DOM-ELEMENTTIEN HAKU
     const panel = document.getElementById('tutorialPanel');
     const image = document.getElementById('tutorialSpeakerImage');
     const nameField = document.getElementById('tutorialSpeakerName');
     const textField = document.getElementById('tutorialText');
     const closeButton = document.getElementById('tutorialCloseButton');
-    // KORJAUS 1: Lisätty puuttuva skipButton-haku.
     const skipButton = document.getElementById('tutorialSkipButton'); 
 
-    if (!panel || !image || !nameField || !textField || !closeButton || !skipButton) return;
+    if (!panel || !image || !nameField || !textField || !closeButton || !skipButton) {
+        // Jos jokin elementti puuttuu, varmistetaan ettei peli jää paussille.
+        closeAndCleanupTutorial(wasPausedBeforeTutorial, null);
+        return;
+    }
 
-    // --- VAIHE 3: PUHUJAN JA ULKOASUN PÄIVITYS ---
-    if (step.speaker === 'Valerius') {
+    // VAIHE 4: PUHUJAN JA ULKOASUN PÄIVITYS
+    if (step.speaker === 'Valerius') { // Kenraali
         image.src = './assets/portraits/valerius.png';
         nameField.textContent = 'General Valerius';
         panel.style.borderColor = '#dc3545'; // Punainen
-        
-    } else if (step.speaker === 'AI') {
-        // UUSI EHTO AI-PUHUJALLE
+    } else if (step.speaker === 'AI') {  // AI
         image.src = './assets/portraits/ai.png';
         nameField.textContent = 'Unknown Signal'; // Arvoituksellinen nimi
         panel.style.borderColor = '#9333ea';      // purppura erottumaan muista
-
     } else { 
         // Oletuksena Elara
         image.src = './assets/portraits/elara.png';
@@ -3149,28 +3113,33 @@ function showTutorialMessage(stepOrStepId) {
         panel.style.borderColor = '#63b3ed'; // Sininen
     }
 
+    // VAIHE 5: PANEELIN NÄYTTÄMINEN JA TEKSTIANIMAATIO
     panel.style.display = 'flex';
     highlightElement(step.highlightSelector);
     animateText(textField, step.text, 500);
 
+    // VAIHE 6: TAPAHTUMANKUUNTELIJOIDEN MÄÄRITTELY
+    // Määritellään käsittelijät muuttujiin, jotta voimme poistaa ne myöhemmin.
     const handleTutorialKeyPress = (event) => {
         if (event.key === 'Enter') {
             event.preventDefault();
             document.getElementById('tutorialCloseButton')?.click();
         }
     };
-    document.addEventListener('keydown', handleTutorialKeyPress);
-
     const handleSkip = (event) => {
         event.preventDefault();
-        tutorialState.isActive = false;
+        tutorialState.isActive = false; // Deaktivoidaan koko tutoriaalijärjestelmä.
         closeAndCleanupTutorial(wasPausedBeforeTutorial, handleTutorialKeyPress);
     };
+
+    // VAIHE 7: TAPAHTUMANKUUNTELIJOIDEN LISÄYS
+    document.addEventListener('keydown', handleTutorialKeyPress);
     skipButton.addEventListener('click', handleSkip, { once: true });
 
+    // Kloonataan "Close"-nappi vanhojen kuuntelijoiden poistamiseksi.
     const newCloseButton = closeButton.cloneNode(true);
     closeButton.parentNode.replaceChild(newCloseButton, closeButton);
-
+    
     newCloseButton.addEventListener('mouseenter', async () => {
         await initAudio();
         playButtonHoverSound();
@@ -3178,10 +3147,13 @@ function showTutorialMessage(stepOrStepId) {
 
     newCloseButton.addEventListener('click', () => {
         playButtonClickSound();
+        // Varmuuden vuoksi poistetaan myös skip-kuuntelija.
         skipButton.removeEventListener('click', handleSkip);
         
+        // Kutsutaan yleistä siivousfunktiota.
         closeAndCleanupTutorial(wasPausedBeforeTutorial, handleTutorialKeyPress);
-        
+
+        // Jos vaiheella on jatko-osa, laukaistaan seuraava tapahtuma.
         if (step.next) {
             const nextStepInLine = tutorialSteps[step.next];
             if (nextStepInLine?.trigger?.event === 'TUTORIAL_CONTINUE') {
@@ -3191,6 +3163,7 @@ function showTutorialMessage(stepOrStepId) {
     }, { once: true });
 }
 
+
 /**
  * MITÄ: Korostaa tai poistaa korostuksen annetusta UI-elementistä (tai elementeistä).
  * MIKSI: Tämä on visuaalinen apufunktio, joka ohjaa pelaajan huomion
@@ -3198,7 +3171,7 @@ function showTutorialMessage(stepOrStepId) {
  * @param {string|string[]|null} selector - Korostettavan elementin CSS-selektori tai taulukko selektoreita.
  */
 function highlightElement(selector) {
-     // 1. Poistetaan aina ensin kaikki vanhat korostukset, jotta vältetään päällekkäisyydet.
+    // Poistetaan aina ensin kaikki vanhat korostukset.
     const highlightedElements = document.querySelectorAll('.highlight-tutorial');
     highlightedElements.forEach(el => {
         el.classList.remove('highlight-tutorial');
@@ -3207,7 +3180,7 @@ function highlightElement(selector) {
     // Jos selektoria ei ole annettu, lopetetaan..
     if (!selector) return;
 
-    // 2. Käsitellään sekä yksittäinen selektori (string) että useampi (array)..
+    /// Käsitellään sekä yksittäinen selektori (string) että useampi (array).
     if (Array.isArray(selector)) {
         // Jos selektori on taulukko, käydään jokainen läpi ja lisätään korostusluokka.
         selector.forEach(sel => {
@@ -3226,6 +3199,100 @@ function highlightElement(selector) {
 }
 
 
+
+/**
+ * MITÄ: Muuntaa tutoriaalin tekstin Markdown-syntaksin HTML-muotoon.
+ * MIKSI: Mahdollistaa tekstin muotoilun (lihavointi, rivinvaihdot) suoraan
+ * `tutorialScript.js`-tiedostosta ilman, että itse dialogeihin tarvitsee
+ * kirjoittaa HTML-tageja.
+ * @param {string} text - Muotoilematon teksti.
+ * @returns {string} - HTML-muotoiltu merkkijono.
+ */
+function formatTutorialText(text) {
+    // Varmistetaan, ettei tyhjä text-muuttuja aiheuta virhettä.
+    if (!text) return '';
+    // Ketjutetaan kaksi replace-metodia:
+    return text
+        // 1. Etsii kaikki kaksoistähtien sisällä olevat merkkijonot ja korvaa ne <strong>-tageilla.
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        // 2. Etsii kaikki rivinvaihtomerkit (\n) ja korvaa ne HTML:n <br>-tageilla.
+        .replace(/\n/g, '<br>');
+}
+
+
+/**
+ * MITÄ: Analysoi pelaajan strategiaa vertaamalla valloitettujen kaivosten suhdetta kokonaismäärään.
+ * MIKSI: Palkitsee pelaajan, joka noudattaa aiemmin annettua neuvoa hyökätä AI:n
+ * taloudellista selkärankaa vastaan. Tekee neuvonantajista reaktiivisempia ja
+ * pelaajan strategisista valinnoista merkityksellisempiä.
+ */
+function checkCaptureStrategy() {
+    // Vartiolauseke: Lopetetaan, jos tutoriaali ei ole aktiivinen.
+    if (!tutorialState.isActive) return;
+
+    // Lasketaan pelaajan kaivosten kokonaismäärä (itse rakennetut + valloitetut).
+    const totalPlayerMines = tutorialState.minesBuiltByPlayer + tutorialState.minesCapturedFromAI;
+    // Vartiolauseke: Vältetään nollalla jakaminen, jos pelaajalla ei ole yhtään kaivosta
+    if (totalPlayerMines === 0) return; 
+
+    // Laske valloitettujen kaivosten prosenttiosuus kaikista pelaajan kaivoksista.
+    const captureRatio = tutorialState.minesCapturedFromAI / totalPlayerMines;
+
+    // Taso 1: Pelaaja on omaksunut valloitusstrategian.
+    // Ehto: Pelaajalla on yli 5 kaivosta, joista vähintään 40% on valloitettuja.
+    if (tutorialState.capturedMinePraiseLevel === 0 && totalPlayerMines > 5 && captureRatio >= 0.4) {
+        advanceTutorial('CAPTURE_STRATEGY_BOOST');
+        tutorialState.capturedMinePraiseLevel = 1;
+
+    // Taso 2: Pelaajan talous on riippuvainen valloitetuista resursseista.
+    // Ehto: Vähintään 20 kaivosta, joista yli 50% on valloitettuja.
+    } else if (tutorialState.capturedMinePraiseLevel === 1 && totalPlayerMines >= 20 && captureRatio > 0.5) {
+        advanceTutorial('CAPTURE_STRATEGY_DOMINANCE');
+        tutorialState.capturedMinePraiseLevel = 2;
+    }
+}
+
+
+/**
+ * MITÄ: Tarkistaa, onko pelaaja saavuttanut "virheettömän valloituksen" virstanpylväitä.
+ * MIKSI: Palkitsee pelaajaa taitavasta ja riskittömästä laajentumisesta. Luo tunteen,
+ * että neuvonantajat seuraavat pelaajan kampanjan tehokkuutta ja ovat siitä
+ * vaikuttuneita. Tämä kannustaa harkittuun pelaamiseen.
+ */
+function checkStrategicMilestones() {
+    // Vartiolauseke: Lopetetaan heti, jos tutoriaali on pois päältä tai pelaaja on jo kärsinyt tappioita.
+    // Tämä on funktion keskeisin ehto.
+    if (!tutorialState.isActive || tutorialState.playerHasSustainedLosses) {
+        return;
+    }
+    // Vartiolauseke: Varmistetaan, että pelitila on alustettu.
+    if (!gameState || !gameState.stars) return;
+
+    // Lasketaan pelaajan tällä hetkellä omistamien tähtien määrä.
+    const playerStarCount = gameState.stars.filter(star => isPlayerOwned(star)).length;
+
+    // --- Porrastetut kehut virstanpylväiden perusteella ---
+    // Tarkistus 1: 10 planeettaa, jos ensimmäinen kehu on vielä antamatta.
+    if (tutorialState.flawlessConquestLevel === 0 && playerStarCount >= 10) {
+        advanceTutorial('FLAWLESS_CONQUEST_10');
+        tutorialState.flawlessConquestLevel = 1; // Merkitään ensimmäinen kehu annetuksi.
+    // Tarkistus 2: 30 planeettaa, jos toinen kehu on vielä antamatta.
+    } else if (tutorialState.flawlessConquestLevel === 1 && playerStarCount >= 30) {
+        advanceTutorial('FLAWLESS_CONQUEST_30');
+        tutorialState.flawlessConquestLevel = 2; // Merkitään toinen kehu annetuksi.
+    // Tarkistus 3: 50 planeettaa, jos kolmas kehu on vielä antamatta.
+    } else if (tutorialState.flawlessConquestLevel === 2 && playerStarCount >= 50) {
+        advanceTutorial('FLAWLESS_CONQUEST_50');
+        tutorialState.flawlessConquestLevel = 3; // Merkitään kolmas kehu annetuksi.
+    //  Tarkistus 4: 75 planeettaa
+    } else if (tutorialState.flawlessConquestLevel === 3 && playerStarCount >= 75) {
+        advanceTutorial('FLAWLESS_CONQUEST_75');
+        tutorialState.flawlessConquestLevel = 4; // Merkitään neljäs kehu annetuksi.
+    }
+}
+
+
+
 /**
  * MITÄ: Tutoriaalijärjestelmän "aivot". Vastaanottaa pelitapahtuman ja päättää, tuleeko jonkin
  * tutoriaalivaiheen laueta.
@@ -3235,26 +3302,29 @@ function highlightElement(selector) {
  * @param {object} payload - Tapahtumaan liittyvä data.
  */
 function advanceTutorial(triggerEvent, payload = {}) {
+    // Vartiolauseke: Jos tutoriaali on poistettu käytöstä (esim. skipattu), lopetetaan heti.
     if (!tutorialState.isActive) return;
 
     // Sisäinen apufunktio, joka vertaa tutoriaalivaiheen vaatimuksia (`condition`)
     // todelliseen pelitapahtumaan (`triggerEvent`, `payload`).
     const checkCondition = (condition) => {
+        // Ehto 1: Tapahtuman nimen on täsmättävä.
         if (!condition || condition.event !== triggerEvent) return false;
-        // Jos triggeri vaatii tiettyä payload-dataa...
+
+        // Ehto 2: Jos triggeri vaatii tiettyä payload-dataa...
         if (condition.payload) {
-            // ...varmistetaan, että kaikki vaaditut kentät löytyvät ja niiden arvot täsmäävät.
+            // ...varmistetaan, että KAIKKI vaaditut kentät löytyvät ja niiden arvot täsmäävät.
             return Object.keys(condition.payload).every(key =>
                 payload[key] !== undefined && condition.payload[key] === payload[key]
             );
         }
-        // Jos payload-ehtoja ei ole, pelkkä eventin täsmääminen riittää.
+        // Jos payload-ehtoja ei ole, pelkkä tapahtuman nimen täsmääminen riittää.
         return true;
     };
 
     // --- OSA 1: KETJUTETTUJEN DIALOGIEN KÄSITTELY ---
-    // Tämä osa suoritetaan VAIN, kun tapahtuma on 'TUTORIAL_CONTINUE'.
-    // Se tarkistaa, oliko edellisellä viestillä jatkoa (next-kenttä).
+    // Tämä erityislohko suoritetaan VAIN, kun tapahtuma on 'TUTORIAL_CONTINUE',
+    // joka laukeaa, kun pelaaja sulkee tutoriaali-ikkunan, jolla oli `next`-ominaisuus.
     if (triggerEvent === 'TUTORIAL_CONTINUE' && tutorialState.lastStepId) {
         const lastStep = tutorialSteps[tutorialState.lastStepId];
         const nextStepId = lastStep?.next;
@@ -3262,25 +3332,27 @@ function advanceTutorial(triggerEvent, payload = {}) {
 
         // Jos seuraava vaihe on olemassa ja se on nimenomaan TUTORIAL_CONTINUE-tyyppinen...
         if (nextStep && nextStep.trigger.event === 'TUTORIAL_CONTINUE') {
-            // ...ja sitä ei ole jo näytetty...
+            // ...ja sitä ei ole vielä näytetty...
             if (!tutorialState.completedSteps.has(nextStepId)) {
-                // ...näytetään se ja poistutaan funktiosta.
+                // ...näytetään se ja poistutaan funktiosta, koska tehtävä on suoritettu.
                 showTutorialMessage(nextStepId);
             }
             return;
         }
     }
 
-    // --- OSA 2: KAIKKIEN MUIDEN TAPAHTUMIEN KÄSITTELY ---
+    // --- OSA 2: KAIKKIEN MUIDEN, TAPAHTUMAPOHJAISTEN TRIGGERIEN KÄSITTELY ---
     // Käydään läpi kaikki `tutorialScript.js`:n määrittelemät vaiheet.
     for (const [stepId, step] of Object.entries(tutorialSteps)) {
-        // Ohitetaan vaiheet, jotka on jo näytetty tai jotka ovat jatkodialogeja.
+        // Suodatus: Ohitetaan vaiheet, jotka on jo suoritettu tai jotka kuuluvat
+        // edellä käsiteltyihin dialogiketjuihin ('TUTORIAL_CONTINUE').
         if (tutorialState.completedSteps.has(stepId) || step.trigger?.event === 'TUTORIAL_CONTINUE') {
             continue;
         }
 
         let triggerMet = false;
-        // A) Käsittele risteysvaiheet (esim. 'firstActionComplete').
+
+        // A) Käsittele risteysvaiheet, joilla on monimutkaisempi `triggers`-taulukko.
         if (step.triggers) {
             for (const branch of step.triggers) {
                 // Tarkistetaan, täyttyykö haaran ehto.
@@ -3290,22 +3362,26 @@ function advanceTutorial(triggerEvent, payload = {}) {
                     // Näytetään haaran määrittelemä viesti ja merkitään risteys "käytetyksi".
                     showTutorialMessage(branch.action);
                     tutorialState.completedSteps.add(stepId); // Merkitse risteys "käytetyksi"
-                    return; // Poistutaan, ettei muita tutoriaaleja laukea samasta tapahtumasta.
+                    return; // Poistutaan heti, kun yksi ehto täyttyy.
                 }
             }
-        // B) Käsittele normaalit, yksittäisen triggerin vaiheet.
+        // B) Käsittele normaalit vaiheet, joilla on yksinkertainen `trigger`-objekti.
         } else if (step.trigger) {
             triggerMet = checkCondition(step.trigger);
         }
-        // Jos mikä tahansa triggeri täyttyi...
+
+        // C) Laukaisu: Jos jokin ehto (A tai B) täyttyi...
         if (triggerMet) {
+            // Erityiskäsittely satunnaistetuille AI-viesteille.
             if (step.texts && Array.isArray(step.texts)) {
                 const randomText = step.texts[Math.floor(Math.random() * step.texts.length)];
                 const newStep = { ...step, text: randomText };
                 showTutorialMessage(newStep);
             } else {
+                // Näytetään normaali tutoriaalivaihe.
                 showTutorialMessage(stepId);
             }
+            // Poistutaan funktiosta heti, jotta vältetään useiden tutoriaalien laukeaminen samasta tapahtumasta.
             return;
         }
         
@@ -3361,6 +3437,8 @@ function checkCombatLosses() {
     }
 }
 
+
+
 /**
  * MITÄ: Tarkistaa, onko jokin uusi rakennusvaihtoehto tullut mahdolliseksi.
  * MIKSI: Tämä funktio tekee tutoriaalista proaktiivisen ja opastaa pelaajaa,
@@ -3371,7 +3449,7 @@ function checkUnlockTriggers(starData) {
     // Varmistetaan, että tutoriaali on päällä ja käsittelemme pelaajan omaa tähteä.
     if (!tutorialState.isActive || !starData || !isPlayerOwned(starData)) return;
     
-    // Sääntö Shipyard Lvl 2:lle (tämä oli jo olemassa)
+    // Sääntö Shipyard Lvl 2:lle 
     if (starData.infrastructureLevel >= 2 && starData.shipyardLevel === 1) {
         advanceTutorial('UNLOCK', { 
             option: 'Shipyard Lvl 2',
@@ -3379,7 +3457,7 @@ function checkUnlockTriggers(starData) {
         });
     }
 
-    // LISÄTTY: Sääntö Shipyard Lvl 3:lle
+    // Sääntö Shipyard Lvl 3:lle
     if (starData.infrastructureLevel >= 3 && starData.shipyardLevel === 2) {
         advanceTutorial('UNLOCK', { 
             option: 'Shipyard Lvl 3',
@@ -3387,7 +3465,7 @@ function checkUnlockTriggers(starData) {
         });
     }
 
-    // LISÄTTY: Sääntö Shipyard Lvl 4:lle
+    // Sääntö Shipyard Lvl 4:lle
     if (starData.infrastructureLevel >= 4 && starData.shipyardLevel === 3) {
         advanceTutorial('UNLOCK', { 
             option: 'Shipyard Lvl 4',
@@ -3399,52 +3477,61 @@ function checkUnlockTriggers(starData) {
 
 /**
  * MITÄ: Animoi tekstin ilmestymisen elementtiin kirjain kerrallaan.
- * MIKSI: Luo immersiivisen lennätin/terminaali-efektin. Osaa käsitellä HTML-tageja.
+ * MIKSI: Luo immersiivisen lennätin/terminaali-efektin. Osaa käsitellä HTML-tageja
+ * rikkomatta niitä, mikä mahdollistaa tekstin muotoilun animaation aikana.
  * @param {HTMLElement} element - HTML-elementti, johon teksti kirjoitetaan.
  * @param {string} text - Koko teksti, joka animoidaan.
- * @param {number} totalDuration - Animaation kokonaiskesto millisekunteina.
+ * @param {number} totalDuration - Animaation tavoiteltu kokonaiskesto millisekunteina.
  */
 function animateText(element, text, totalDuration = 500) {
-    // Jos vanha animaatio on vielä käynnissä, pysäytetään se.
+    // Varmistetaan, että aiempi animaatio pysähtyy, jos uusi käynnistetään sen päälle.
     if (activeTextAnimation) {
         clearInterval(activeTextAnimation);
     }
     
-    // Alustetaan elementti tyhjäksi.
+    // --- Alustusvaihe ---
+    // Tyhjennetään kohde-elementti vanhasta sisällöstä.
     element.innerHTML = '';
     
-    // Muotoillaan teksti ensin HTML-muotoon.
+    // Muotoillaan koko teksti kerralla valmiiksi HTML-muotoon (esim. **bold** -> <strong>).
     const htmlText = formatTutorialText(text);
+    // Lasketaan näkyvien merkkien määrä animaation ajoitusta varten (jätetään tagit pois laskuista).
     const textLength = htmlText.replace(/<[^>]*>/g, '').length; // Lasketaan pituus ilman tageja.
     
-    // Varmistetaan, ettei jako nollalla tapahdu.
+    // Vartiolauseke: Jos teksti on tyhjä, näytetään se heti ja poistutaan (ei jaeta nollalla).
     if (textLength === 0) {
         element.innerHTML = htmlText;
         return;
     }
     
-    // Lasketaan viive per merkki.
+    // Lasketaan, kuinka kauan viivytään kunkin merkin välillä, jotta saavutetaan haluttu kokonaiskesto.
     const delayPerChar = totalDuration / textLength;
-    let i = 0;
+    let i = 0; // Indeksi, joka seuraa, missä kohtaa `htmlText`-merkkijonoa olemme.
 
+    // --- Animaatiosilmukka ---
+    // Käynnistetään ajastin, joka lisää tekstiä pala kerrallaan.
     activeTextAnimation = setInterval(() => {
-        // Jos olemme tekstin lopussa, pysäytetään ajastin.
+        // Jos koko teksti on käyty läpi, pysäytetään ajastin.
         if (i >= htmlText.length) {
             clearInterval(activeTextAnimation);
             activeTextAnimation = null;
             return;
         }
 
-        // Jos seuraava merkki on HTML-tagin alku...
+        // Tunnistetaan HTML-tagin alku ('<').
         if (htmlText[i] === '<') {
+            // Jos kyseessä on tagi, etsitään sen loppu ('>')...
             const tagEnd = htmlText.indexOf('>', i);
-            // ...lisätään koko tagi kerralla ilman ääntä.
+            // ...ja lisätään koko tagi (esim. "<strong>" tai "<br>") kerralla ja äänettömästi.
             element.innerHTML += htmlText.substring(i, tagEnd + 1);
+            // Siirretään indeksi tagin loppuun.
             i = tagEnd + 1;
         } else {
-            // Muussa tapauksessa lisätään yksi merkki ja soitetaan ääni.
+            // Jos kyseessä on normaali, näkyvä merkki, lisätään se...
             element.innerHTML += htmlText[i];
+            // ...soitetaan lennätinääni...
             playTeletypeSound();
+            // ...ja siirrytään seuraavaan merkkiin.
             i++;
         }
     }, delayPerChar);
@@ -3452,30 +3539,38 @@ function animateText(element, text, totalDuration = 500) {
 
 
 /**
- * Tarkistaa, onko tekoäly saavuttanut erilaisia virstanpylväitä
- * ja laukaisee tarvittaessa tutoriaalitapahtumia.
+ * MITÄ: Tarkistaa, onko tekoäly saavuttanut erilaisia teollisia ja teknologisia virstanpylväitä.
+ * MIKSI: Luo pelaajalle tunteen, että tekoäly ei ole staattinen, vaan se kehittyy ja kasvaa pelin
+ * edetessä. Tämä lisää maailman elävyyttä ja antaa pelaajalle tärkeää strategista tietoa
+ * vihollisen voimistumisesta.
  */
 function checkAIMilestones() {
+    // Vartiolausekkeet: Lopetetaan heti, jos tutoriaali on pois päältä tai pelin tilaa ei ole ladattu.
     if (!tutorialState.isActive || !gameState || !gameState.stars) return;
 
     // --- TARKISTUS 1: AI:n keskimääräinen kaivoskapasiteetti ---
-    if (tutorialState.aiMinePraiseLevel < 3) { // Tarkistetaan vain, jos kaikki kehut eivät ole vielä tulleet
+    // Tämä lohko tarkkailee AI:n teollista laajentumista ja kommentoi sitä porrastetusti.
+    if (tutorialState.aiMinePraiseLevel < 3) { // Tarkistetaan vain, jos kaikki kommentit eivät ole vielä tulleet
+        //muuta yllä olevaa jos lisätään ehtoja / tilanteita / portaita
         const numberOfAIPlayers = gameState.players.filter(p => String(p._id) !== String(myPlayerId)).length;
 
+        // Suoritetaan laskenta vain, jos pelissä on tekoälyvastustajia.
         if (numberOfAIPlayers > 0) {
             const totalAIMines = gameState.stars
                 .filter(star => star.ownerId && String(star.ownerId) !== String(myPlayerId))
                 .reduce((sum, star) => sum + (star.mines || 0), 0);
             const averageMinesPerAI = totalAIMines / numberOfAIPlayers;
-            
             const level = tutorialState.aiMinePraiseLevel;
 
+            // Virstanpylväs 1: AI:lla keskimäärin 10 kaivosta.
             if (level === 0 && averageMinesPerAI >= 10) {
                 advanceTutorial('AI_MINES_10');
                 tutorialState.aiMinePraiseLevel = 1;
+            // Virstanpylväs 2: AI:lla keskimäärin 25 kaivosta.
             } else if (level === 1 && averageMinesPerAI >= 25) {
                 advanceTutorial('AI_MINES_25');
                 tutorialState.aiMinePraiseLevel = 2;
+            // Virstanpylväs 3: AI:lla keskimäärin 50 kaivosta.
             } else if (level === 2 && averageMinesPerAI >= 50) {
                 advanceTutorial('AI_MINES_50');
                 tutorialState.aiMinePraiseLevel = 3;
@@ -3484,8 +3579,8 @@ function checkAIMilestones() {
     }
 
     // --- TARKISTUS 2: AI:n ensimmäinen tason 2 telakka ---
+    // Varoitetaan pelaajaa, kun yksikään AI-pelaaja saa kyvyn rakentaa Hävittäjiä (Destroyers).
     if (!tutorialState.hasWarnedAboutAIShipyardLvl2) {
-        // Etsitään, onko YHDELLÄKÄÄN AI-planeetalla vähintään tason 2 telakka.
         const aiHasLvl2Shipyard = gameState.stars.some(star =>
             star.ownerId &&
             String(star.ownerId) !== String(myPlayerId) &&
@@ -3498,7 +3593,8 @@ function checkAIMilestones() {
         }
     }
 
-    // --- LISÄTTY TARKISTUS 3: AI:n ensimmäinen tason 3 telakka ---
+    // --- TARKISTUS 3: AI:n ensimmäinen tason 3 telakka ---
+    // Varoitetaan pelaajaa, kun yksikään AI-pelaaja saa kyvyn rakentaa Capital-aluksia (Cruisers).
     if (!tutorialState.hasWarnedAboutAIShipyardLvl3) {
         const aiHasLvl3Shipyard = gameState.stars.some(star =>
             star.ownerId &&
@@ -3511,14 +3607,18 @@ function checkAIMilestones() {
         }
     }
     
-    // Voit lisätä tulevaisuudessa tähän lisää `if`-ehtoja muille virstanpylväille!
+    // Tähän voipi lisäillä jos vaikka minkälaista lisäjutua
 }
 
+
 /**
- * Tarkistaa pelaajan puolustuksellisen strategian ja laukaisee
- * tarvittaessa siihen liittyviä tutoriaaleja.
+ * MITÄ: Analysoi pelaajan puolustuksellista strategiaa monesta eri näkökulmasta.
+ * MIKSI: Antaa pelaajalle palautetta hänen tekemistään strategisista valinnoista
+ * liittyen puolustukseen. Se sekä kehuu harkittua puolustamista että varoittaa
+ * sen laiminlyönnistä, tehden neuvonantajista dynaamisempia.
  */
 function checkDefensiveStance() {
+    // Vartiolausekkeet: Lopetetaan, jos tutoriaali ei ole aktiivinen tai pelitilaa ei ole ladattu.
     if (!tutorialState.isActive || !gameState || !gameState.stars) return;
 
     // Lasketaan pelaajan planeettojen ja puolustustasojen kokonaismäärät.
@@ -3528,7 +3628,8 @@ function checkDefensiveStance() {
 
     const totalDefenseLevels = playerStars.reduce((sum, star) => sum + (star.defenseLevel || 0), 0);
 
-    // --- TARKISTUS 1: Porrastetut kehut puolustuksen määrästä ---
+    // --- TARKISTUS 1: "Kilpikonna"-strategian kehuminen ---
+    // Palkitsee pelaajan, jolla on paljon puolustusta suhteessa planeettojen määrään.
     switch (tutorialState.defensivePraiseLevel) {
         case 0:
             if (playerStarCount < 8 && totalDefenseLevels >= 5) {
@@ -3550,12 +3651,12 @@ function checkDefensiveStance() {
             break;
     }
 
-    // --- TARKISTUS 2: Onko KAIKKI planeetat puolustettu? ---
-    // Tarkistetaan vain, jos kaikki mahdolliset kehut eivät ole vielä tulleet.
+    // --- TARKISTUS 2: "Täydellisen puolustuksen" kehuminen ---
+    // Palkitsee pelaajan, joka on järjestelmällisesti rakentanut puolustuksen jokaiseen omistamaansa planeettaan.
     if (tutorialState.totalDefensePraiseLevel < 3) {
+        // Tarkistetaan, onko JOKAISELLA pelaajan tähdellä vähintään 1 puolustustaso.
         const allPlanetsDefended = playerStars.every(star => (star.defenseLevel || 0) > 0);
-        
-        // Jos kaikki on puolustettu, tarkistetaan, mikä virstanpylväs on saavutettu.
+        // Jos kaikki on puolustettu, tarkistetaan, mikä palautteen virstanpylväs on saavutettu.
         if (allPlanetsDefended) {
             if (tutorialState.totalDefensePraiseLevel === 0 && playerStarCount >= 10) {
                 advanceTutorial('TOTAL_DEFENSE_10');
@@ -3570,27 +3671,28 @@ function checkDefensiveStance() {
         }
     }
 
-    // --- UUSI TARKISTUS 3: Puolustuksen laiminlyönnin varoitukset ---
+    // --- TARKISTUS 3: Puolustuksen laiminlyönnistä varoittaminen ---
+    // Huomauttaa pelaajaa, jos hänen imperiuminsa on laaja, mutta puolustukset ovat heikot.
     switch (tutorialState.neglectedDefenseWarningLeveL) {
-        case 0: // UUSI, VARHAINEN VAROITUS
+        case 0: // Varhainen muistutus: 5 planeettaa, ei yhtään puolustusta. (Tutoriaalimainen muistutus)
             if (playerStarCount >= 5 && totalDefenseLevels === 0) {
                 advanceTutorial('NEGLECTED_DEFENSE_0');
                 tutorialState.neglectedDefenseWarningLeveL = 1;
             }
             break;
-        case 1: // Aiempi taso 1 on nyt taso 2
+        case 1: // Ensimmäinen varoitus: 10 planeettaa, alle 5 puolustustasoa.
             if (playerStarCount >= 10 && totalDefenseLevels < 5) {
                 advanceTutorial('NEGLECTED_DEFENSE_1');
                 tutorialState.neglectedDefenseWarningLeveL = 2;
             }
             break;
-        case 2: // Aiempi taso 2 on nyt taso 3
+        case 2: // Toinen varoitus: 20 planeettaa, alle 10 puolustustasoa.
             if (playerStarCount >= 20 && totalDefenseLevels < 10) {
                 advanceTutorial('NEGLECTED_DEFENSE_2');
                 tutorialState.neglectedDefenseWarningLeveL = 3;
             }
             break;
-        case 3: // Aiempi taso 3 on nyt taso 4
+        case 3: // Kolmas, vakava varoitus: 30 planeettaa, alle 15 puolustustasoa.
             if (playerStarCount >= 30 && totalDefenseLevels < 15) {
                 advanceTutorial('NEGLECTED_DEFENSE_3');
                 tutorialState.neglectedDefenseWarningLeveL = 4;
@@ -3601,11 +3703,15 @@ function checkDefensiveStance() {
 
 
 /**
- * Tarkistaa pelaajan rakentamien Galactic Hubien määrän ja laukaisee
- * tarvittaessa virstanpylväskommentteja verkoston kasvaessa.
+ * MITÄ: Tarkistaa pelaajan rakentamien Galactic Hubien määrän.
+ * MIKSI: Antaa pelaajalle tyydyttävää palautetta ja tunteen saavutuksesta,
+ * kun hän investoi pelin kalleimpaan ja strategisesti tärkeimpään
+ * loppupelin teknologiaan. Storyline -päivityksiä madonreikien valjastamisesta
  */
 function checkHubNetworkMilestones() {
-    if (!tutorialState.isActive || !gameState || !gameState.stars) return;
+    // Vartiolausekkeet: Lopetetaan, jos tutoriaali ei ole aktiivinen tai peli on päättynyt.
+    if (!tutorialState.isActive || tutorialState.hubNetworkPraiseLevel >= 4) return;
+    if (!gameState || !gameState.stars) return;
 
     // Lasketaan pelaajan omistamien Hubien määrä.
     const playerHubCount = gameState.stars
@@ -3614,28 +3720,30 @@ function checkHubNetworkMilestones() {
 
     const level = tutorialState.hubNetworkPraiseLevel;
 
-    // Tarkistetaan eri virstanpylväät.
+    // Tarkistetaan porrastetusti, onko jokin virstanpylväs saavutettu.
     if (level === 0 && playerHubCount >= 3) {
         advanceTutorial('HUB_NETWORK_3');
-        tutorialState.hubNetworkPraiseLevel = 1;
+        tutorialState.hubNetworkPraiseLevel = 1;    // Merkitään taso 1 saavutetuksi.
 
     } else if (level === 1 && playerHubCount >= 6) {
         advanceTutorial('HUB_NETWORK_6');
-        tutorialState.hubNetworkPraiseLevel = 2;
+        tutorialState.hubNetworkPraiseLevel = 2;    // Merkitään taso 2 saavutetuksi.
 
     } else if (level === 2 && playerHubCount >= 9) {
         advanceTutorial('HUB_NETWORK_9');
-        tutorialState.hubNetworkPraiseLevel = 3;
+        tutorialState.hubNetworkPraiseLevel = 3;    // Merkitään taso 3 saavutetuksi.
     } else if (level === 3 && playerHubCount >= 12) {
         advanceTutorial('HUB_NETWORK_12');
-        tutorialState.hubNetworkPraiseLevel = 4;
+        tutorialState.hubNetworkPraiseLevel = 4;    // Merkitään taso 4 saavutetuksi.
     }
 }
 
 
 /**
- * Tarkistaa, onko pelaajan imperiumi laajentunut vaarallisen nopeasti
- * suhteessa laivaston kokoon, ja antaa tarvittaessa varoituksia.
+ * MITÄ: Tarkistaa, onko pelaajan imperiumi laajentunut vaarallisen nopeasti suhteessa laivaston kokoon.
+ * MIKSI: Varoittaa pelaajaa "ylilaajentumisen" (empire sprawl) vaaroista. Liian suuri ja heikosti
+ * puolustettu imperiumi on haavoittuvainen vastahyökkäyksille. Tämä opettaa pelaajalle
+ * tasapainoista laajentumista ja sotilaallisen voiman ylläpitoa.
  */
 function checkEmpireSprawl() {
     if (!tutorialState.isActive || !gameState || !gameState.stars || !gameState.ships) return;
@@ -3644,44 +3752,52 @@ function checkEmpireSprawl() {
     const playerStarCount = gameState.stars.filter(star => isPlayerOwned(star)).length;
     const playerShipCount = gameState.ships.filter(ship => isPlayerOwned(ship)).length;
 
-    // Määritellään kynnysarvot.
+    // Kiinteä kynnysarvo "pienelle" laivastolle. Varoitus laukeaa, jos aluksia on tämän verran tai alle.
     const FLEET_SIZE_THRESHOLD = 10;
 
     // Porrastetut varoitukset
     switch (tutorialState.empireSprawlWarningLeveL) {
         case 0:
+            // Taso 1: Imperiumi on kasvanut merkittävästi (20 planeettaa), mutta laivasto on yhä pieni.
             if (playerStarCount >= 20 && playerShipCount <= FLEET_SIZE_THRESHOLD) {
                 advanceTutorial('EMPIRE_SPRAWL_WARNING_1');
                 tutorialState.empireSprawlWarningLeveL = 1;
             }
             break;
         case 1:
+            // Taso 2: Imperiumi on erittäin laaja (40 planeettaa), mutta laivasto on edelleen olematon. Riski kasvaa.
             if (playerStarCount >= 40 && playerShipCount <= FLEET_SIZE_THRESHOLD) {
                 advanceTutorial('EMPIRE_SPRAWL_WARNING_2');
                 tutorialState.empireSprawlWarningLeveL = 2;
             }
             break;
         case 2:
-            // Voit jatkaa tätä lisäämällä case 2, case 3 jne. tulevaisuudessa.
+            // Tätähän voi sitten jatkaa, tiiivistää jnejnejne. 
             break;
     }
 }
 
 
 /**
- * Analysoi sotatilannetta vertaamalla pelaajan ja AI:n laivastojen voimaa
- * sekä pelaajan kärsimiä tappioita, ja laukaisee kontekstisidonnaisia kommentteja.
+ * MITÄ: Analysoi sotatilannetta vertaamalla pelaajan ja AI:n laivastojen suhteellista voimaa.
+ * MIKSI: Tarjoaa pelaajalle älykkäämpää ja kontekstitietoisempaa palautetta sodan kulusta.
+ * Sen sijaan, että reagoitaisiin vain tappioiden määrään, tämä funktio ymmärtää, onko
+ * pelaaja voittamassa kulutussotaa vai häviämässä taistelua, ja laukaisee
+ * tilanteeseen sopivan dialogin.
  */
 function checkWarEffort() {
+    // Vartiolausekkeet: Lopetetaan, jos tutoriaali ei ole aktiivinen tai pelitilaa ei ole ladattu.
     if (!tutorialState.isActive || !gameState || !gameState.ships) return;
 
-    // Määritellään "voimapisteet" kullekin alustyypille.
+    // Määritellään "voimapisteet" kullekin alustyypille. Tämä on yksinkertainen tapa
+    // arvioida laivaston kokonaisvoimaa, painottaen kalliimpia aluksia.
     const shipPower = { Fighter: 1, Destroyer: 2, Cruiser: 4, 'Slipstream Frigate': 1 };
 
     let playerFleetPower = 0;
     let aiFleetPower = 0;
 
-    // Lasketaan pelaajan ja AI:n laivastojen yhteenlasketut voimapisteet.
+    // Käydään läpi kaikki pelin alukset ja lasketaan erikseen pelaajan ja tekoälyn
+    // laivastojen yhteenlasketut voimapisteet.
     gameState.ships.forEach(ship => {
         if (isPlayerOwned(ship)) {
             playerFleetPower += shipPower[ship.type] || 0;
@@ -3690,15 +3806,18 @@ function checkWarEffort() {
         }
     });
 
-    // --- EHTO 1: Pelaaja on voitolla, mutta kärsii tappioita ("Winning Attrition") ---
-    // Laukeaa, jos pelaajalla on väh. 50% enemmän voimaa kuin AI:lla, mutta on menettänyt 20 alusta.
+    // --- EHTO 1: "Kulutusvoitto" (Winning Attrition). ---
+    // Laukeaa, jos pelaaja on selvästi voitolla (yli 50% vahvempi laivasto),
+    // mutta on silti kärsinyt merkittäviä tappioita (20+ alusta). Kommentoidaan,
+    // että tappiot ovat hyväksyttävä hinta voitosta.
     if (tutorialState.warEffortCommentLevel === 0 && playerFleetPower > (aiFleetPower * 1.5) && tutorialState.playerShipsLost >= 20) {
         advanceTutorial('WAR_EFFORT_WINNING_ATTRITION');
         tutorialState.warEffortCommentLevel = 1;
     }
 
-    // --- EHTO 2: Pelaaja on häviöllä ja kärsii tappioita ("Losing Battle") ---
-    // Laukeaa, jos AI:lla on enemmän voimaa ja pelaaja on menettänyt 30 alusta.
+    // --- EHTO 2: "Hävitty taistelu" (Losing Battle). ---
+    // Laukeaa, jos tekoälyn laivasto on voimakkaampi JA pelaaja on menettänyt
+    // huomattavan määrän aluksia (30+). Varoittaa pelaajaa kestämättömästä tilanteesta.
     else if (tutorialState.warEffortCommentLevel < 2 && aiFleetPower > playerFleetPower && tutorialState.playerShipsLost >= 30) {
         advanceTutorial('WAR_EFFORT_LOSING_BATTLE');
         tutorialState.warEffortCommentLevel = 2;
@@ -3707,28 +3826,34 @@ function checkWarEffort() {
 
 
 /**
- * Käynnistää ajastimen, joka lähettää satunnaisia AI-viestejä
- * pelaajalle tietyin väliajoin.
+ * MITÄ: Käynnistää rekursiivisen ajastimen, joka lähettää satunnaisia AI-viestejä pelaajalle.
+ * MIKSI: Luo peliin tunnelmaa ja arvoituksellisuutta. Antaa pelaajalle tunteen,
+ * että tekoäly on jatkuvasti läsnä ja tarkkailee tilannetta, vaikka se ei
+ * aktiivisesti sotisikaan.
  */
 function startAIMessageBroadcast() {
-    // Ajastin laukeaa satunnaisesti 3-5 minuutin välein.
+    // Määritellään satunnainen aikaväli (3-5 minuuttia) seuraavalle lähetykselle.
+    // Tämä tekee viestien ilmestymisestä vähemmän ennalta-arvattavaa.
     const randomInterval = (Math.random() * 2 + 3) * 60 * 1000;
 
+    // Asetetaan ajastin, joka suorittaa logiikan, kun satunnainen aikaväli on kulunut.
     setTimeout(() => {
-        // Varmistetaan, että peli on käynnissä ja tutoriaali aktiivinen.
+        // Lähetetään viesti vain, jos peli on aktiivisesti käynnissä ja tutoriaali on päällä.
         if (gameInProgress && tutorialState.isActive) {
             
-            // Jos tämä on ensimmäinen viesti, laukaistaan erityinen tapahtuma.
+            // Erillinen logiikka ensimmäiselle kontaktille: Elara huomaa signaalin.
+            // Tämä varmistaa, että ensimmäinen viesti on aina tarinallisesti pohjustettu.
             if (!tutorialState.hasReceivedFirstAIMessage) {
                 advanceTutorial('AI_FIRST_CONTACT');
                 tutorialState.hasReceivedFirstAIMessage = true;
             } else {
-                // Muussa tapauksessa laukaistaan yleinen satunnainen tapahtuma.
+                // Tämän jälkeen lähetetään vain yleisiä, satunnaisia AI-viestejä.
                 advanceTutorial('AI_RANDOM_BROADCAST');
             }
         }
         
-        // Käynnistetään ajastin uudelleen seuraavaa viestiä varten.
+        // Rekursiivinen kutsu: kun yksi ajastin on päättynyt, tämä käynnistää uuden.
+        // Tämä varmistaa, että viestejä tulee tasaisin väliajoin koko pelin ajan.
         startAIMessageBroadcast();
 
     }, randomInterval);
@@ -3736,47 +3861,59 @@ function startAIMessageBroadcast() {
 
 
 /**
- * Tarkistaa, onko peli päättynyt voittoon tai tappioon,
- * ja laukaisee vastaavat tarinalliset tapahtumat.
+ * MITÄ: Tarkistaa absoluuttiset voitto- ja tappioehdot pelin päättämiseksi.
+ * MIKSI: Antaa pelaajan voitolle tai tappiolle tarinallisen ja emotionaalisen loppuratkaisun.
+ * Erottelee myös täydellisen tuhon ja "maanpaossa"-tilan, mikä lisää syvyyttä
+ * tappiokokemukseen.
  */
 function checkGameEndConditions() {
+    // Vartiolausekkeet: Lopetetaan, jos tutoriaali ei ole aktiivinen tai pelitilaa ei ole ladattu.
     if (!tutorialState.isActive || !gameState || !gameState.stars) return;
 
-    // Laske pelaajan ja AI:n planeettojen määrät
+    // Lasketaan pelaajan ja tekoälyn hallitsemien planeettojen nykyiset määrät.
     const playerStars = gameState.stars.filter(star => isPlayerOwned(star));
     const aiStars = gameState.stars.filter(star => star.ownerId && !isPlayerOwned(star));
 
     // --- TAPPION TARKISTUS ---
-    if (playerStars.length === 0 && !tutorialState.hasTriggeredDefeat) {
+    if (playerStars.length === 0) { // Ehto: Pelaajalla ei ole planeettoja
         const playerShipCount = gameState.ships.filter(ship => isPlayerOwned(ship)).length;
-        
-        if (playerShipCount === 0) {
-            // Täydellinen tappio: ei planeettoja, ei aluksia.
-            advanceTutorial('PLAYER_DEFEAT_TOTAL');
-        } else {
-            // "Maanpaossa"-tappio: ei planeettoja, mutta laivasto on vielä olemassa.
+
+        // Tapaus A: Pelaaja on siirtynyt maanpakoon, mutta tätä ei ole vielä todettu.
+        if (playerShipCount > 0 && tutorialState.defeatStateLevel === 0) {
             advanceTutorial('PLAYER_DEFEAT_EXILE');
+            tutorialState.defeatStateLevel = 1; // Merkitään "maanpaossa"-tila aktiiviseksi.
+        
+        // Tapaus B: Pelaaja on menettänyt viimeisenkin aluksensa (maanpaon aikana tai heti).
+        } else if (playerShipCount === 0 && tutorialState.defeatStateLevel < 2) {
+            advanceTutorial('PLAYER_DEFEAT_TOTAL');
+            tutorialState.defeatStateLevel = 2; // Merkitään peli lopullisesti päättyneeksi.
+            tutorialState.isActive = false;
         }
-        tutorialState.hasTriggeredDefeat = true;
-        tutorialState.isActive = false; // Peli päättyy, pysäytä tutoriaalit.
     }
     
-    // --- VOITON TARKISTUS ---
+    // --- VOITON TARKISTUS: Onko tekoälyllä enää planeettoja? ---
+    // Ehto: Yhdelläkään AI:lla ei ole planeettoja, pelaajalla on vähintään yksi, JA voittodialogia ei ole näytetty.
     if (aiStars.length === 0 && playerStars.length > 0 && !tutorialState.hasTriggeredVictory) {
         advanceTutorial('PLAYER_VICTORY');
+        
+        // Asetetaan liput, jotta tämä ei toistu ja peli päättyy.
         tutorialState.hasTriggeredVictory = true;
         tutorialState.isActive = false; // Peli päättyy, pysäytä tutoriaalit.
     }
 }
 
+
 /**
- * Tarkistaa strategiset edut, kuten telakoiden hallinnan, ja laukaisee
- * tarvittaessa kommentteja pelin käännekohdista.
+ * MITÄ: Tarkistaa, onko jompikumpi osapuoli (pelaaja tai AI) menettänyt kaikki telakkansa.
+ * MIKSI: Nämä ovat kriittisiä pelin käännekohtia, jotka vaikuttavat suoraan kykyyn
+ * tuottaa uusia aluksia. Funktio laukaisee dialogin, joka alleviivaa pelaajalle
+ * tilanteen strategisen merkityksen.
  */
 function checkStrategicAdvantages() {
+    // Vartiolausekkeet: Lopetetaan, jos tutoriaali on pois päältä tai pelitilaa ei ole ladattu.
     if (!tutorialState.isActive || !gameState || !gameState.stars) return;
 
-    // Lasketaan pelaajan ja AI:n omistamien telakoiden kokonaismäärä.
+    // Lasketaan pelaajan ja tekoälyn omistamien tähtien määrä, joilla on vähintään tason 1 telakka.
     let playerShipyards = 0;
     let aiShipyards = 0;
 
@@ -3790,47 +3927,49 @@ function checkStrategicAdvantages() {
         }
     });
 
-    // TARKISTUS 1: Pelaaja on menettänyt kaikki telakkansa
+    // --- TARKISTUS 1: Pelaaja on menettänyt kaikki telakkansa ---
+    // Ehto on yksinkertainen: jos telakoita on 0 ja varoitusta ei ole vielä annettu.
     if (playerShipyards === 0 && !tutorialState.hasLostAllShipyards) {
-        // Varmistetaan, että peli on edennyt (pelaajalla on oltava ollut telakka aiemmin)
-        if (tutorialState.completedSteps.has('firstShipyardBuilt')) {
-            advanceTutorial('PLAYER_SHIPYARDS_LOST');
-            tutorialState.hasLostAllShipyards = true;
-        }
+        advanceTutorial('PLAYER_SHIPYARDS_LOST');
+        tutorialState.hasLostAllShipyards = true;
     }
 
-    // TARKISTUS 2: AI on menettänyt kaikki telakkansa
+    // --- TARKISTUS 2: AI on menettänyt kaikki telakkansa ---
+    // Ehto on yksinkertainen: jos telakoita on 0 ja varoitusta ei ole vielä annettu.
     if (aiShipyards === 0 && !tutorialState.hasCrippledAIShipyards) {
-        // Varmistetaan, että AI:lla on ylipäätään ollut telakka
-        if (tutorialState.hasWarnedAboutAIShipyardLvl2) {
-            advanceTutorial('AI_SHIPYARDS_DESTROYED');
-            tutorialState.hasCrippledAIShipyards = true;
-        }
+        advanceTutorial('AI_SHIPYARDS_DESTROYED');
+        tutorialState.hasCrippledAIShipyards = true;
     }
 }
 
 
+
 /**
- * Tarkistaa galaksin valloituksen prosenttiosuuden ja laukaisee
- * virstanpylväskommentteja pelin edetessä.
+ * MITÄ: Tarkistaa, kuinka suuren osan galaksista pelaaja ja tekoäly hallitsevat.
+ * MIKSI: Antaa pelaajalle palautetta sodan suurista linjoista ja strategisesta
+ * tilanteesta. Kommentit 50% tai 80% hallinnasta tekevät pelin etenemisestä
+ * konkreettisempaa ja palkitsevampaa (tai varoittavampaa).
  */
 function checkConquestPercentage() {
+    // Vartiolausekkeet: Lopetetaan, jos tutoriaali ei ole aktiivinen tai pelitilaa ei ole ladattu.
     if (!tutorialState.isActive || !gameState || !gameState.stars) return;
 
     const totalStarCount = gameState.stars.length;
+    // Vartiolauseke: Vältetään nollalla jakaminen, jos galaksissa ei ole tähtiä.
     if (totalStarCount === 0) return;
 
-    // Lasketaan pelaajan ja AI:n planeettojen määrät
+    // Lasketaan ensin pelaajan ja tekoälyn hallitsemien tähtien absoluuttiset määrät.
     const playerStars = gameState.stars.filter(star => isPlayerOwned(star));
     const aiStars = gameState.stars.filter(star => star.ownerId && !isPlayerOwned(star));
     const playerStarCount = playerStars.length;
     const aiStarCount = aiStars.length;
 
-    // Lasketaan prosenttiosuudet
+    // Muunnetaan absoluuttiset määrät prosenttiosuuksiksi koko galaksista.
     const playerPct = (playerStarCount / totalStarCount) * 100;
     const aiPct = (aiStarCount / totalStarCount) * 100;
 
-    // --- Pelaajan virstanpylväät ---
+    // --- PELAAJAN VALLOITUKSEN VIRSTANPYLVÄÄT ---
+    // Tarkistetaan pelaajan saavutukset porrastetusti `playerConquestPctLevel`-laskurin avulla.
     const pLevel = tutorialState.playerConquestPctLevel;
     if (pLevel === 0 && playerPct >= 20) {
         advanceTutorial('PLAYER_CONQUERED_20_PERCENT');
@@ -3846,7 +3985,8 @@ function checkConquestPercentage() {
         tutorialState.playerConquestPctLevel = 4;
     }
 
-    // --- AI:n virstanpylväät ---
+    // --- TEKOÄLYN VALLOITUKSEN VIRSTANPYLVÄÄT (VAROITUKSET) ---
+    // Tarkistetaan vastaavasti tekoälyn saavutukset, jotka toimivat varoituksina pelaajalle.
     const aiLevel = tutorialState.aiConquestPctLevel;
     if (aiLevel === 0 && aiPct >= 50) {
         advanceTutorial('AI_CONQUERED_50_PERCENT');
@@ -3856,6 +3996,8 @@ function checkConquestPercentage() {
         tutorialState.aiConquestPctLevel = 2;
     }
 }
+
+
 
 /* ========================================================================== */
 /*  UTILITY FUNCTIONS                                                         */

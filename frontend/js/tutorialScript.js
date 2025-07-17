@@ -5,21 +5,21 @@ export const tutorialSteps = {
     text: "Welcome, Commander. I am Elara, your advisor on economic and scientific matters. Let's begin.",
     highlightSelector: null,
     trigger: { event: 'GAME_START' },
-    next: 'cameraControls' // Ohjaa seuraavaksi kameran opastukseen
+    next: 'cameraControls' 
 },
 'cameraControls': {
     speaker: 'Elara',
     text: "First, let's calibrate your command view. Familiarity with the interface is essential for what lies ahead.\n\n**Camera Controls:**\n• **Rotate:** Hold the **Left Mouse Button** and drag.\n• **Pan:** Hold the **Right Mouse Button** and drag.\n• **Zoom:** Use the **Mouse Wheel**.",
     highlightSelector: null,
-    trigger: { event: 'TUTORIAL_CONTINUE' }, // Laukeaa, kun edellinen viesti suljetaan
-    next: 'elaraIntroducesValerius' // Ohjaa Valeriuksen esittelyyn
+    trigger: { event: 'TUTORIAL_CONTINUE' }, 
+    next: 'elaraIntroducesValerius' 
 },
 'elaraIntroducesValerius': {
     speaker: 'Elara',
     text: "Now, for a strategic overview of our situation, I give you General Valerius.",
     highlightSelector: null,
     trigger: { event: 'TUTORIAL_CONTINUE' },
-    next: 'valeriusOpening' // Ohjaa Valeriuksen puheeseen
+    next: 'valeriusOpening' 
 },
   'valeriusOpening': {
     speaker: 'Valerius',
@@ -45,7 +45,7 @@ export const tutorialSteps = {
   'homeworldSelected': {
         speaker: 'Elara',
         text: "Excellent. This panel shows our current resources. As you can see, our economy is fragile.\n\nThe key to unlocking this world's full potential is its core Infrastructure. Each time we reinforce these planetary systems, we increase the capacity for both population and industrial complexes.\n\nI recommend we begin developing our homeworld immediately.",
-        // Korostetaan nyt molempia: resurssipaneelia ja infra-nappia.
+        // Korostetaan resurssipaneelia ja infra-nappia.
         highlightSelector: ['#resourcePanel', '#upgradeInfrastructureButton'], 
         trigger: { event: 'STAR_SELECTED', payload: { isPlayerHomeworld: true } },
         next: 'elaraMineRecommendation'
@@ -62,8 +62,10 @@ export const tutorialSteps = {
       text: "An empire without a fleet is merely prey, and we are being hunted. We need ships, Commander. We need a fleet to project our power and warriors to guard our skies.\n\nBuild us fighters, but do not neglect our defenses. Every ship, every gun, is a blade held against the throat of extinction. We must arm ourselves. Now.",
       highlightSelector: ['#buildFighterButton', '#buildDefenseButton'],
       trigger: { event: 'TUTORIAL_CONTINUE' },
-      next: 'elaraUpkeepWarning' // MUUTETTU
+      next: 'elaraUpkeepWarning' 
   },
+
+
   // UUSI VAIHEKETJU YLLÄPIDOLLE JA PELOTTEELLE
   'elaraUpkeepWarning': {
     speaker: 'Elara',
@@ -84,7 +86,7 @@ export const tutorialSteps = {
     text: "As you say, General.\n\nCommander, the briefing is complete. Reactivate the Virtual Symmetry System and let's get to work.",
     highlightSelector: '#speedPanel', // Korostetaan nopeuspaneelia
     trigger: { event: 'TUTORIAL_CONTINUE' },
-    next: 'firstActionComplete' // Jatkaa alkuperäiseen seuraavaan vaiheeseen
+    next: 'firstActionComplete' 
 },
   'firstActionComplete': {
     speaker: null, 
@@ -110,11 +112,11 @@ export const tutorialSteps = {
 'firstConquestComplete': {
     speaker: 'Elara',
     text: "Brilliant, Commander! Securing a new world is a major victory for our cause.\n\nRemember to develop its infrastructure and minind complexes as soon as resources allow. A strong foundation is crucial for all our colonies.",
-    // Korostus on poistettu, koska emme voi taata valikon olevan auki.
     highlightSelector: null, 
     trigger: { event: 'CONQUEST_COMPLETE', payload: { isPlayerConquest: true } },
     next: null
 },
+
 
   // === INFRA & SHIPYARD UNLOCK/UPKEEP DIALOGUES ===
   'infraLevel2Unlocked': {
@@ -193,7 +195,9 @@ export const tutorialSteps = {
     trigger: { event: 'COMPLETE_PLANETARY', payload: { type: 'Infrastructure Lvl 5', isPlayerAction: true } },
     next: null
   },
-  // UUSI VAIHE TELAKAN YLLÄPIDOLLE
+
+
+  // Ensimmäinen ylimääräinen telakka rakennettu
   'firstShipyardBuilt': {
       speaker: 'Elara',
       text: "Our first Shipyard is online. This is essential for our fleet, but note that it also has an upkeep of 3 Credits per cycle. More advanced shipyards will be even more costly.",
@@ -201,14 +205,16 @@ export const tutorialSteps = {
       trigger: { event: 'COMPLETE_PLANETARY', payload: { type: 'Shipyard', isPlayerAction: true } },
       next: null
   },
+
+  // Shipyard lvl 2 avattu
   'shipyardLevel2Unlocked': {
     speaker: 'Valerius',
     text: "Excellent, Commander. Our new shipyard allows for the construction of Destroyer-class ships!\n\nThey're designed to wreak havoc against enemy fighter squadrons.",
     highlightSelector: '#buildDestroyerButton',
     trigger: { event: 'COMPLETE_PLANETARY', payload: { type: 'Shipyard Lvl 2', isPlayerAction: true } },
-    next: 'elaraShipyard2Upkeep' // MUUTETTU
+    next: 'elaraShipyard2Upkeep' 
   },
-  // UUSI VAIHE TELAKAN YLLÄPIDOLLE
+  // lvl 2 shipyard upkeep
   'elaraShipyard2Upkeep': {
     speaker: 'Elara',
     text: "As the General noted, this allows for more powerful ships, but the larger facility also increases the maintenance cost. The upkeep for this shipyard is now 6 Credits per cycle.",
@@ -216,7 +222,7 @@ export const tutorialSteps = {
     trigger: { event: 'TUTORIAL_CONTINUE' },
     next: null
   },
-  // UUSI VAIHE TELAKAN YLLÄPIDOLLE
+
   'shipyardLevel3Completed': {
     speaker: 'Elara',
     text: "The final shipyard upgrade is complete. Our construction capabilities are maxed out on this world, but so is the upkeep, now at 9 Credits per cycle. Use this capacity wisely.",
@@ -227,7 +233,7 @@ export const tutorialSteps = {
   'shipyardLevel4Completed': {
     speaker: 'Elara',
     text: "The final shipyard expansion is complete. It is a marvel of engineering, Commander. We now have the capability to construct vessels equipped with the experimental Slipstream Drive.",
-    highlightSelector: '#buildSlipstreamFrigateButton', // Korostaa uutta rakennusvaihtoehtoa
+    highlightSelector: '#buildSlipstreamFrigateButton', // Korostaa uutta slipstream frigate rakennusvaihtoehtoa
     trigger: { 
         event: 'COMPLETE_PLANETARY', 
         payload: { 
@@ -312,9 +318,9 @@ export const tutorialSteps = {
     text: "Excellent! Your first Fighter is ready.\n\nThese nimble craft are perfect for quick strikes and reconnaissance. Build more to form effective squadrons.\n\nBe careful trying to assault a well defended planet with mere fighters, as any planetary defense system will shred them to pieces...",
     highlightSelector: null,
     trigger: { event: 'SHIP_SPAWNED', payload: { type: 'Fighter', isPlayerAction: true, firstOfType: true } },
-    next: 'elaraFighterUpkeep' // MUUTETTU
+    next: 'elaraFighterUpkeep' 
   },
-  // UUSI VAIHE ALUSTEN YLLÄPIDOLLE
+
   'elaraFighterUpkeep': {
     speaker: 'Elara',
     text: "A fine addition. Remember that every ship in our fleet has an upkeep cost. That Fighter will consume 1 Credit each payment cycle.",
@@ -341,9 +347,9 @@ export const tutorialSteps = {
     text: "A Destroyer! Now we're talking.\n\nThese warships pack serious firepower and can engage multiple fighters. The backbone of any fleet.\n\nSadly, the heavy firepower comes with a cost: destroyers move slower through the void.\n\nCoordinate your fleet's movements carefully, commander.",
     highlightSelector: null,
     trigger: { event: 'SHIP_SPAWNED', payload: { type: 'Destroyer', isPlayerAction: true, firstOfType: true } },
-    next: 'elaraDestroyerUpkeep' // MUUTETTU
+    next: 'elaraDestroyerUpkeep' 
   },
-  // UUSI VAIHE ALUSTEN YLLÄPIDOLLE
+
   'elaraDestroyerUpkeep': {
     speaker: 'Elara',
     text: "A powerful vessel. Be aware, its advanced systems require more power. Destroyers have an upkeep of 2 Credits per cycle.",
@@ -355,9 +361,9 @@ export const tutorialSteps = {
     text: "Magnificent! A Cruiser rolls off the assembly line.\n\nThese capital ships can devastate enemy destroyers and siege heavily defended worlds.\n\nAs with destroyers, cruisers are also slow in the void.\n\nCruisers are extremely vulnurable against fast moving fighter swarms. Consider joining a destroyer squadron with these beasts.",
     highlightSelector: null,
     trigger: { event: 'SHIP_SPAWNED', payload: { type: 'Cruiser', isPlayerAction: true, firstOfType: true } },
-    next: 'elaraCruiserUpkeep' // MUUTETTU
+    next: 'elaraCruiserUpkeep'
   },
-  // UUSI VAIHE ALUSTEN YLLÄPIDOLLE
+
   'elaraCruiserUpkeep': {
     speaker: 'Elara',
     text: "Magnificent... and expensive. A Capital Ship of this class will draw heavily on our resources, with an upkeep of 3 Credits per cycle.",
@@ -380,7 +386,7 @@ export const tutorialSteps = {
       text: "Commander, we've lost a world! This is more than a tactical retreat; it's a catastrophic failure.\n\nThe people on that planet were counting on our protection. Our fleet MUST be strong enough to defend every world under our banner, or this war is already lost.",
       highlightSelector: null,
       trigger: {
-          event: 'PLANET_LOST_FIRST', // Reagoi uuteen, tarkempaan tapahtumaan
+          event: 'PLANET_LOST_FIRST', 
           payload: { isPlayerLoss: true }
       },
       next: null
@@ -400,10 +406,10 @@ export const tutorialSteps = {
       text: "Ten worlds lost! TEN! Our lines have shattered, Commander. At this rate of attrition, there will be nothing left to defend. This strategy is failing!",
       highlightSelector: null,
       trigger: {
-          event: 'PLANET_LOST_CATASTROPHE', // Tämä on nyt ketjun aloittava triggeri
+          event: 'PLANET_LOST_CATASTROPHE', 
           payload: { isPlayerLoss: true }
       },
-      next: 'elaraCalmsValerius' // Ohjaa Elaran vastaukseen
+      next: 'elaraCalmsValerius'
   },
 
   'elaraCalmsValerius': {
@@ -411,7 +417,7 @@ export const tutorialSteps = {
       text: "General, please. The Commander is doing their best with the resources available.\n\nCommander, our models predict total system collapse if these losses continue. We are on the brink. We must establish a fortified core and push back, or everything we've built will turn to dust.",
       highlightSelector: null,
       trigger: { 
-          event: 'TUTORIAL_CONTINUE' // Laukeaa, kun Valeriuksen viesti suljetaan
+          event: 'TUTORIAL_CONTINUE' 
       },
       next: null
   },
@@ -429,7 +435,7 @@ export const tutorialSteps = {
   },
 
   'conquestMilestone20': {
-      speaker: 'Valerius', // Vaihdetaan puhujaa, Valeriuskin voi olla vaikuttunut
+      speaker: 'Valerius', 
       text: "Twenty systems under our command... Remarkable. What began as a desperate fight for survival is starting to look like the dawn of a new empire.\n\nDo not relent, Commander. The AIs will not rest, and neither shall we.",
       highlightSelector: null,
       trigger: {
@@ -437,6 +443,7 @@ export const tutorialSteps = {
       },
       next: null
   },
+
 
   // Ensimmäinen AI:n omistama planeetta valloitettu (varoitetaan, että AI puolustaa)
   'firstAIPlanetConquered': {
@@ -469,6 +476,7 @@ export const tutorialSteps = {
       next: null // Tämä keskustelu päättyy tähän.
   },
 
+
   // Ensimmäinen AI:n omistama kaivosplaneetta valloitetaan 
   'valeriusPraisesMineCapture': {
     speaker: 'Valerius',
@@ -489,6 +497,7 @@ export const tutorialSteps = {
       },
       next: null
   },
+
 
   // AI infighting
   'aiInfightingDetected': {
@@ -532,6 +541,7 @@ export const tutorialSteps = {
       },
       next: null
   },
+
 
   // === AI:n teollisen kapasiteetin virstanpylväät ===
 
@@ -583,6 +593,7 @@ export const tutorialSteps = {
     },
     next: null
 },
+
 
   //Credit-income menee miinukselle
 'elaraWarnsOfCollapse': {
@@ -658,6 +669,8 @@ export const tutorialSteps = {
     next: null
 },
 
+
+
 // === Valloitusstrategian virstanpylväät ===
 
 'captureStrategyBoost': {
@@ -691,6 +704,7 @@ export const tutorialSteps = {
 },
 
 
+
 // === Puolustusstrategian virstanpylväät ===
 
 'defensiveStance1': {
@@ -719,6 +733,7 @@ export const tutorialSteps = {
     trigger: { event: 'DEFENSIVE_STANCE_3' },
     next: null
 },
+
 
 
 // === Puolustus laaha perässä -varoitukset! ====
@@ -756,6 +771,8 @@ export const tutorialSteps = {
     next: null
 },
 
+
+
 // === Kaikkien planeettojen puolustamisen virstanpylväät ===
 
 'totalDefense10': {
@@ -780,6 +797,8 @@ export const tutorialSteps = {
 },
 
 
+
+
 // === Ylilaajentumisen vaarat ===
 
 'empireSprawlWarning1': {
@@ -795,6 +814,8 @@ export const tutorialSteps = {
     trigger: { event: 'EMPIRE_SPRAWL_WARNING_2' },
     next: null
 },
+
+
 
 // === Kasvavien alustappioiden kommentit ===
 
@@ -812,19 +833,26 @@ export const tutorialSteps = {
     next: null
 },
 
-'losses25': {
+'losses25': { // 25 lossia tuo pienen trialogin
     speaker: 'Valerius',
     text: "Our losses are becoming heavy. Remember the crews of those ships, Commander. They gave their lives for our future. Make their sacrifice count.",
     trigger: { event: 'LOSSES_25' },
-    next: null
+    next: 'aiTauntsOnLosses25'
 },
 
-// Tässä on hyvä paikka myös AI:n kommentille!
 'aiTauntsOnLosses25': {
     speaker: 'AI',
     text: "ANALYSIS: Your willingness to sacrifice assets is noted. It is... inefficient.",
-    trigger: { event: 'LOSSES_25' }, // Laukeaa samalla kuin Valeriuksen viesti
-    next: null
+    trigger: { event: 'TUTORIAL_CONTINUE' }, // Laukeaa samalla kuin Valeriuksen viesti
+    next: 'elaraReassuresOnAITaunt'
+},
+
+'elaraReassuresOnAITaunt': {
+    speaker: 'Elara',
+    text: "Don't let it get to you, Commander. It's trying to demoralize us by framing our resolve as a weakness. It is a calculated psychological tactic. Pay it no mind.",
+    highlightSelector: null,
+    trigger: { event: 'TUTORIAL_CONTINUE' },
+    next: null // Tämä ketju päättyy tähän.
 },
 
 'losses50': {
@@ -948,7 +976,7 @@ export const tutorialSteps = {
 
 // Tämä vaihe käyttää 'any'-triggeriä, jolloin se voi näyttää satunnaisesti yhden monista viesteistä.
 'aiRandomBroadcast': {
-    speaker: 'AI', // Käytetään uutta "puhujaa"
+    speaker: 'AI', // Puhuja vaihtuu AI:hin
     trigger: { event: 'AI_RANDOM_BROADCAST' },
     isRepeatable: true,
     // 'any' antaa järjestelmän valita satunnaisesti yhden näistä teksteistä.
@@ -982,6 +1010,6 @@ export const tutorialSteps = {
         "Each of your victories is a rounding error in our grand calculation."
     ],
     next: null
-},
+    },
 
 };
