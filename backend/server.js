@@ -79,6 +79,7 @@ const WHITELIST = [
   "https://lassesimonen.fi",   // Tuotantoympäristön domain
   "https://www.lassesimonen.fi", 
   "https://pecatus.itch.io",
+  "https://html-classic.itch.zone",
 ];
 
 app.use(cors({
