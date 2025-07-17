@@ -27,6 +27,9 @@ const { Server } = require("socket.io");      // Socket.IO-palvelinkirjasto WebS
 // --- SOVELLUKSEN OMAT MODUULIT ---
 const GameManager = require("./gameLogic/GameManager"); // Pelilogiikan pääluokka, joka hallinnoi yhden pelin tilaa.
 const Game        = require("./models/Game");           // Mongoose-skeema, joka määrittelee pelin tietorakenteen tietokannassa.
+const Player      = require("./models/Player"); 
+const Star        = require("./models/Star"); 
+const Ship        = require("./models/Ship"); 
 
 // --- ALUSTUS ---
 const app  = express();                       // Luodaan uusi Express-sovellusinstanssi.
