@@ -497,9 +497,9 @@ app.post("/api/games/new", async (req, res) => {
  */
 setInterval(async () => {
   try {
-    const cutoffTime = new Date(Date.now() - 24 * 60 * 60 * 1000); // 24h vanha
+    const cutoffTime = new Date(Date.now() - 12 * 60 * 60 * 1000); // 12h vanha
     
-    // 1. Etsi kaikki pelit, jotka ovat yli 24h vanhoja.
+    // 1. Etsi kaikki pelit, jotka ovat yli 12h vanhoja.
     // Haetaan vain ID:t, koska emme tarvitse muuta dataa, mikä tekee kyselystä tehokkaamman.
     const oldGames = await Game.find({
         createdAt: { $lt: cutoffTime }
