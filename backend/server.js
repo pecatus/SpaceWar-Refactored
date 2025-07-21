@@ -328,6 +328,16 @@ io.on("connection", socket => {
       }
   });
 
+  /**Ping-kuuntelija/vastaaja vasteaikamittarille (Client -> F3 -> Ping)
+   * MITÄ: Kuuntelee pingiä ja vastaa pongilla
+   * MIKSI: Projektisuunnitelmassa luvattu 200ms vasteaika tai pienempi.
+   * Tällä vasteaika voidaan mitata.
+   */
+  socket.on('ping_from_client', () => {
+    // Lähetä välittömästi vastaus takaisin vain tälle yhdelle clientille
+    socket.emit('pong_from_server');
+  });
+
   /**
    * ----- EI TOIMI ODOTETUSTI: RENDER.com vaatii maksullisen instanssin,
    * jotta palvelin pysyy pystyssä yli 15 minuuttia. Tämä EI korjannut tilannetta

@@ -197,6 +197,12 @@ const INFRA_LIMITS = {
 /* ========================================================================== */
 // Nämä muuttujat säilyttävät client-sovelluksen tilan koko pelisession ajan.
 
+
+// Muuttujat PINGin mittaamiseen F3-debug-yhteenvedossa´
+let pingInterval = null;    // Viittaus setInterval-ajastimeen
+let pingStartTime = 0;   //muuttuja ajastuksen aloitusajalle
+let lastPingLatency = 0; // muuttuja viimeisimmälle mitatulle latenssille
+
 /**
  * @summary Koko pelin senhetkinen tila.
  * @description Tämä on clientin kopio backendin lähettämästä pelin tilasta. Se sisältää
@@ -426,6 +432,18 @@ socket.on("joined", (response) => {
         alert("Failed to join game: " + response.error);
         showStartScreen();
     }
+});
+
+/**
+ * KUUNTELIJA: `pong_from_server`
+ * TAPAHTUU KUN: Palvelin vastaa onnistuneesti clientin lähettämään `ping_from_client`-pyyntöön.
+ * TEKEE MITÄ: Laskee nykyhetken ja ping-pyynnön lähetyshetken välisen erotuksen (edestakainen viive, RTT) ja tallentaa sen `lastPingLatency`-muuttujaan F3-debug-paneelia varten.
+ */
+socket.on('pong_from_server', () => {
+  if (pingStartTime > 0) {
+    // Laske ja tallenna kulunut aika (edestakainen matka)
+    lastPingLatency = performance.now() - pingStartTime;
+  }
 });
 
 
@@ -660,6 +678,18 @@ function setupEventListeners() {
         const monitor = document.getElementById('performanceMonitor');
         if (monitor) {
             monitor.style.display = monitor.style.display === 'none' ? 'block' : 'none';
+
+            // KÄYNNISTÄ TAI PYSÄYTÄ PING-AJASTIN
+            if (!isVisible) {
+                // Paneeli tuli näkyviin -> käynnistä pingaus
+                if (pingInterval) clearInterval(pingInterval); // Varmuuden vuoksi nollaa vanha
+                pingInterval = setInterval(sendPing, 2000); // Lähetä ping 2 sekunnin välein
+            } else {
+                // Paneeli piilotettiin -> pysäytä pingaus
+                if (pingInterval) clearInterval(pingInterval);
+                pingInterval = null;
+                lastPingLatency = 0; // Nollaa arvo, kun ei käytössä
+            }
         } else {
              console.warn('Performance monitor element not found - add it to your HTML');
         }
@@ -2560,7 +2590,8 @@ function updatePerformanceMonitor() {
     const shipCounter = document.getElementById('shipCounter');
     const effectCounter = document.getElementById('effectCounter');
     const memoryCounter = document.getElementById('memoryCounter');
-    
+    const latencyCounter = document.getElementById('latencyCounter');
+
     // Hakee tiedot scene.js:n tarjoamasta debug-oliosta
     if (window.getSceneDebugInfo) {
         const debug = window.getSceneDebugInfo();
@@ -2580,6 +2611,16 @@ function updatePerformanceMonitor() {
         
         if (shipCounter) shipCounter.textContent = debug.totalShips;
         if (effectCounter) effectCounter.textContent = debug.combatEffects + debug.explosions;
+    }
+
+    // Ping
+    if (pingCounter) {
+        pingCounter.textContent = lastPingLatency.toFixed(1);
+
+        // Värikoodaus
+        if (lastPingLatency < 100) pingCounter.style.color = '#00ff00';      // Vihreä
+        else if (lastPingLatency < 200) pingCounter.style.color = '#ffff00'; // Keltainen
+        else pingCounter.style.color = '#ff0000';      // Punainen
     }
 
     // Hakee selaimen tarjoaman tiedon käytetystä muistista
@@ -2945,7 +2986,6 @@ function updateUIFromDiff(diff) {
                     const oldCredits = playerResources.credits;
                     const oldMinerals = playerResources.minerals;
                     playerResources = action.resources;
-//                     console.log(`💰 Resources updated: Credits ${oldCredits} -> ${playerResources.credits}, Minerals ${oldMinerals} -> ${playerResources.minerals}`);
                     updateResourceDisplay();
                 }
                 break;
@@ -4134,6 +4174,12 @@ const checkCondition = (condition) => {
     }
     return true;
 };
+
+// Apufunktio mikä pingaa palvelinta
+function sendPing() {
+  pingStartTime = performance.now(); // Tallenna lähetysaika
+  socket.emit('ping_from_client');   // Lähetä viesti palvelimelle
+}
 
 /* ========================================================================== */
 /*  EXPORTS & FINAL SETUP                                                     */

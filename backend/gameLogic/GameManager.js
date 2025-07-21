@@ -1136,7 +1136,7 @@ async _checkConquestStart(star, ships, diff) {
             updatesToSend.push({
                 action: 'RESOURCE_UPDATE',
                 playerId: pid,
-                resources: { credits: wallet.credits, minerals: wallet.minerals }
+                resources: { credits: wallet.credits, minerals: wallet.minerals },
             });
         }
     });
