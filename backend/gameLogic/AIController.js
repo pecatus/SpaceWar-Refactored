@@ -1614,4 +1614,5 @@ class AIController {
   }
 }
 
-module.exports = AIController;
+module.exports = { AIController, distance3D, shipPower, starThreatScore, simulatePDFirstStrike, STRUCT_COST };
+

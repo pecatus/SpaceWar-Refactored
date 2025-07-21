@@ -677,21 +677,22 @@ function setupEventListeners() {
         event.preventDefault();
         const monitor = document.getElementById('performanceMonitor');
         if (monitor) {
-            monitor.style.display = monitor.style.display === 'none' ? 'block' : 'none';
+            const isCurrentlyVisible = monitor.style.display === 'block';
+            // Vaihda näkyvyyttä
+            monitor.style.display = isCurrentlyVisible ? 'none' : 'block';
 
-            // KÄYNNISTÄ TAI PYSÄYTÄ PING-AJASTIN
-            if (!isVisible) {
-                // Paneeli tuli näkyviin -> käynnistä pingaus
+            // Päätös ajastimesta perustuu uuteen tilaan
+            if (!isCurrentlyVisible) {
+                // Paneeli TULI näkyviin -> käynnistä pingaus
                 if (pingInterval) clearInterval(pingInterval); // Varmuuden vuoksi nollaa vanha
-                pingInterval = setInterval(sendPing, 2000); // Lähetä ping 2 sekunnin välein
+                sendPing(); // Lähetä ensimmäinen ping heti
+                pingInterval = setInterval(sendPing, 2000); // Lähetä seuraavat 2s välein
             } else {
-                // Paneeli piilotettiin -> pysäytä pingaus
+                // Paneeli PIILOTETTIIN -> pysäytä pingaus
                 if (pingInterval) clearInterval(pingInterval);
                 pingInterval = null;
                 lastPingLatency = 0; // Nollaa arvo, kun ei käytössä
             }
-        } else {
-             console.warn('Performance monitor element not found - add it to your HTML');
         }
     }
 
@@ -2590,7 +2591,7 @@ function updatePerformanceMonitor() {
     const shipCounter = document.getElementById('shipCounter');
     const effectCounter = document.getElementById('effectCounter');
     const memoryCounter = document.getElementById('memoryCounter');
-    const latencyCounter = document.getElementById('latencyCounter');
+    const pingCounter = document.getElementById('pingCounter');
 
     // Hakee tiedot scene.js:n tarjoamasta debug-oliosta
     if (window.getSceneDebugInfo) {
