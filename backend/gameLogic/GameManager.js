@@ -20,7 +20,7 @@ const Ship   = require("../models/Ship");
 const Player = require("../models/Player");
 const Game   = require("../models/Game");
 
-const AIController = require("./AIController");
+const { AIController } = require("./AIController");
 
 /* ========================================================================== */
 /* PELIN VAKIOT JA SÄÄNNÖT (CONSTANTS & RULES)                               */

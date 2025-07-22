@@ -4194,5 +4194,5 @@ export {
     playerResources,
     gameState,
     myPlayerId,
-    currentGameId
+    currentGameId,
 };
